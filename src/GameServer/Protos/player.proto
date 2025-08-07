@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+option csharp_namespace = "GameServer.Protos";
+
+package player;
+
+// Request/Response messages for player operations
+message CreateCharacterRequest {
+  string name = 1;
+  string vocation = 2;
+}
+
+message CreateCharacterResponse {
+  bool success = 1;
+  string message = 2;
+  PlayerInfo player = 3;
+}
+
+message ListCharactersRequest {
+  // Empty - uses JWT for account identification
+}
+
+message ListCharactersResponse {
+  repeated PlayerInfo players = 1;
+}
+
+message PlayerInfo {
+  string id = 1;
+  string name = 2;
+  string vocation = 3;
+  int32 experience = 4;
+  int32 level = 5;
+}
+
+// Player service (requires JWT authentication)
+service PlayerService {
+  rpc CreateCharacter(CreateCharacterRequest) returns (CreateCharacterResponse);
+  rpc ListCharacters(ListCharactersRequest) returns (ListCharactersResponse);
+}

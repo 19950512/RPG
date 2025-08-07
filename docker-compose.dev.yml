@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  gameserver:
+    build: .
+    container_name: gameserver-dev
+    ports:
+      - "5001:5001"
+      - "5002:5002"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./certs:/app/certs:ro
+      - ./src/GameServer:/app/src:ro  # For hot reload in development
+    networks:
+      - gameserver-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: gameserver-postgres-dev
+    environment:
+      - POSTGRES_DB=gameserver
+      - POSTGRES_USER=gameuser
+      - POSTGRES_PASSWORD=gamepass123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - gameserver-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gameuser -d gameserver"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_dev_data:
+    driver: local
+
+networks:
+  gameserver-network:
+    driver: bridge
