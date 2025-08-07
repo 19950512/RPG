@@ -32,6 +32,21 @@ public class GameDbContext : DbContext
             entity.HasIndex(e => e.Name).IsUnique();
             entity.Property(e => e.Name).HasMaxLength(50);
             entity.Property(e => e.Vocation).HasMaxLength(50);
+            entity.Property(e => e.MovementState).HasMaxLength(20);
+            
+            // Set default values
+            entity.Property(e => e.PositionX).HasDefaultValue(960.0f);
+            entity.Property(e => e.PositionY).HasDefaultValue(704.0f);
+            entity.Property(e => e.CurrentHp).HasDefaultValue(100);
+            entity.Property(e => e.MaxHp).HasDefaultValue(100);
+            entity.Property(e => e.CurrentMp).HasDefaultValue(50);
+            entity.Property(e => e.MaxMp).HasDefaultValue(50);
+            entity.Property(e => e.Attack).HasDefaultValue(10);
+            entity.Property(e => e.Defense).HasDefaultValue(5);
+            entity.Property(e => e.Speed).HasDefaultValue(100.0f);
+            entity.Property(e => e.MovementState).HasDefaultValue("idle");
+            entity.Property(e => e.FacingDirection).HasDefaultValue(0);
+            entity.Property(e => e.IsOnline).HasDefaultValue(false);
             
             entity.HasOne(e => e.Account)
                   .WithMany(a => a.Players)

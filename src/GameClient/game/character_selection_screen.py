@@ -44,7 +44,12 @@ class CharacterSelectionScreen:
         if self.play_button.is_clicked(event) and self.selected_character_index is not None:
             selected_char = self.characters[self.selected_character_index]
             print(f"Entering game with {selected_char.name}...")
-            # self.game.switch_state("in_game", character=selected_char) # To be implemented
+            self.game.selected_character = {
+                'name': selected_char.name,
+                'level': selected_char.level,
+                'vocation': selected_char.vocation
+            }
+            self.game.switch_state("in_game")
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             for i, char in enumerate(self.characters):

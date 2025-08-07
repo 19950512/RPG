@@ -9,6 +9,7 @@ from GameClient.auth.login_screen import LoginScreen
 from GameClient.auth.create_account_screen import CreateAccountScreen
 from GameClient.game.character_selection_screen import CharacterSelectionScreen
 from GameClient.game.create_character_screen import CreateCharacterScreen
+from GameClient.game.game_screen import GameScreen
 
 class Game:
     def __init__(self):
@@ -26,7 +27,8 @@ class Game:
             "login": LoginScreen(self),
             "create_account": CreateAccountScreen(self),
             "char_select": CharacterSelectionScreen(self),
-            "create_char": CreateCharacterScreen(self)
+            "create_char": CreateCharacterScreen(self),
+            "in_game": GameScreen(self)
         }
 
     def run(self):

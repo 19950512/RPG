@@ -6,6 +6,9 @@ using GameServer.Interceptors;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Force Development environment for testing
+builder.Environment.EnvironmentName = "Development";
+
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -33,6 +36,7 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 
 // Register custom services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<IWorldService, WorldService>();
 
 // Add gRPC services
 builder.Services.AddGrpc(options =>
