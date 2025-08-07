@@ -1,17 +1,12 @@
 #!/bin/bash
 
-clear
-
 # Test script to verify all gRPC endpoints work correctly
+
+clear
 
 set -e
 
-#!/bin/bash
-
-# Test script for GameServer API
-SERVER_HOST="localhost"
-SERVER_PORT=${SERVER_PORT:-5001}
-SERVER_URL="$SERVER_HOST:$SERVER_PORT"
+SERVER_URL="localhost:5001"
 TEST_EMAIL="test@example.com"
 TEST_PASSWORD="password123"
 CHARACTER_NAME="Test Hero"

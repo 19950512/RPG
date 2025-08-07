@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+option csharp_namespace = "GameServer.Protos";
+
+package auth;
+
+// Request/Response messages for authentication
+message CreateAccountRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message CreateAccountResponse {
+  bool success = 1;
+  string message = 2;
+  string account_id = 3;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string message = 2;
+  string jwt_token = 3;
+  int64 expires_at = 4; // Unix timestamp
+}
+
+// Authentication service
+service AuthService {
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+}

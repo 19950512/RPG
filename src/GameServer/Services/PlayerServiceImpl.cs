@@ -47,7 +47,7 @@ public class PlayerService : GameServer.Protos.PlayerService.PlayerServiceBase
                 };
             }
 
-            var validVocations = new[] { "Knight", "Paladin", "Sorcerer", "Druid" };
+            var validVocations = new[] { "Knight", "Paladin", "Mage", "Assassin" };
             if (!validVocations.Contains(request.Vocation))
             {
                 return new CreateCharacterResponse
