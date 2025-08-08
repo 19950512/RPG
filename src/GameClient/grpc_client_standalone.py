@@ -1,7 +1,15 @@
 import grpc
 import threading
-from .Generated import auth_pb2_grpc, auth_pb2
-from .Generated import player_pb2_grpc, player_pb2
+import sys
+import os
+
+# Adicionar o diretório Generated ao path para imports absolutos
+current_dir = os.path.dirname(__file__)
+generated_dir = os.path.join(current_dir, 'Generated')
+sys.path.insert(0, generated_dir)
+
+import auth_pb2_grpc, auth_pb2
+import player_pb2_grpc, player_pb2
 
 class GrpcClient:
     def __init__(self):
@@ -50,146 +58,134 @@ class GrpcClient:
                         self.channel = None
                     raise
     
+    def connect(self):
+        """Explicitly connect to the gRPC server"""
+        self._ensure_connection()
+    
+    def register(self, email, password):
+        """Register a new account"""
+        try:
+            self._ensure_connection()
+            request = auth_pb2.RegisterRequest()
+            request.email = email
+            request.password = password
+            response = self.auth_stub.Register(request)
+            print(f"Register response: success={response.success}, message={response.message}")
+            return response
+        except grpc.RpcError as e:
+            print(f"gRPC error in register: {e.code()} - {e.details()}")
+            return None
+        except Exception as e:
+            print(f"Error in register: {e}")
+            return None
+
     def login(self, email, password):
-        """Login with email and password"""
+        """Login to get access token"""
         try:
             self._ensure_connection()
-            if self.auth_stub is None:
-                raise Exception("Auth service not available")
-                
-            request = auth_pb2.LoginRequest(email=email, password=password)
-            print(f"Sending login request for: {email}")
+            request = auth_pb2.LoginRequest()
+            request.email = email
+            request.password = password
             response = self.auth_stub.Login(request)
-            print("Login response received successfully")
+            print(f"Login response: success={response.success}, message={response.message}")
             return response
         except grpc.RpcError as e:
-            print(f"gRPC error during login: {e.code()}: {e.details()}")
-            raise
+            print(f"gRPC error in login: {e.code()} - {e.details()}")
+            return None
         except Exception as e:
-            print(f"Unexpected error during login: {e}")
-            raise
-    
-    def create_account(self, email, password):
-        """Create a new account"""
+            print(f"Error in login: {e}")
+            return None
+
+    def create_character(self, token, name, vocation):
+        """Create a new character"""
         try:
             self._ensure_connection()
-            if self.auth_stub is None:
-                raise Exception("Auth service not available")
-                
-            request = auth_pb2.CreateAccountRequest(email=email, password=password)
-            print(f"Sending create account request for: {email}")
-            response = self.auth_stub.CreateAccount(request)
-            print("Create account response received successfully")
-            return response
-        except grpc.RpcError as e:
-            print(f"gRPC error during account creation: {e.code()}: {e.details()}")
-            raise
-        except Exception as e:
-            print(f"Unexpected error during account creation: {e}")
-            raise
-    
-    def get_players(self, token):
-        """Get list of characters for the authenticated user"""
-        try:
-            # Create the request
-            request = player_pb2.ListCharactersRequest()
-            
-            # Create metadata with authorization token
-            metadata = [('authorization', f'Bearer {token}')]
-            
-            # Make the gRPC call
-            response = self.player_stub.ListCharacters(request, metadata=metadata)
-            return response
-            
-        except grpc.RpcError as e:
-            print(f"gRPC error in get_players: {e.code()} - {e.details()}")
-            raise
-        except Exception as e:
-            print(f"Error in get_players: {e}")
-            raise
-    
-    def create_character(self, token, name, vocation):
-        """Create a new character for the authenticated user"""
-        try:
-            # Create the request
             request = player_pb2.CreateCharacterRequest()
             request.name = name
             request.vocation = vocation
             
-            # Create metadata with authorization token
+            # Add auth header
             metadata = [('authorization', f'Bearer {token}')]
             
-            # Make the gRPC call
             response = self.player_stub.CreateCharacter(request, metadata=metadata)
+            print(f"Create character response: success={response.success}, message={response.message}")
             return response
-            
         except grpc.RpcError as e:
             print(f"gRPC error in create_character: {e.code()} - {e.details()}")
-            raise
+            return None
         except Exception as e:
             print(f"Error in create_character: {e}")
-            raise
-    
-    def join_world(self, token, player_id=None):
-        """Join the game world with a character"""
+            return None
+
+    def list_characters(self, token):
+        """List all characters for the account"""
         try:
             self._ensure_connection()
+            request = player_pb2.ListCharactersRequest()
             
-            # Create request
-            request = player_pb2.JoinWorldRequest()
-            if player_id:
-                request.player_id = player_id
-            
-            # Add authorization header
+            # Add auth header
             metadata = [('authorization', f'Bearer {token}')]
             
-            # Make the gRPC call
-            response = self.player_stub.JoinWorld(request, metadata=metadata)
+            response = self.player_stub.ListCharacters(request, metadata=metadata)
+            print(f"List characters response: success={response.success}, found {len(response.characters)} characters")
             return response
+        except grpc.RpcError as e:
+            print(f"gRPC error in list_characters: {e.code()} - {e.details()}")
+            return None
+        except Exception as e:
+            print(f"Error in list_characters: {e}")
+            return None
+
+    def join_world(self, token):
+        """Join the game world"""
+        try:
+            self._ensure_connection()
+            request = player_pb2.JoinWorldRequest()
             
+            # Add auth header
+            metadata = [('authorization', f'Bearer {token}')]
+            
+            response = self.player_stub.JoinWorld(request, metadata=metadata)
+            print(f"Join world response: success={response.success}, message={response.message}")
+            return response
         except grpc.RpcError as e:
             print(f"gRPC error in join_world: {e.code()} - {e.details()}")
-            raise
+            return None
         except Exception as e:
             print(f"Error in join_world: {e}")
-            raise
-    
+            return None
+
     def move_player(self, token, target_x, target_y, movement_type="walk"):
         """Move player to a target position"""
         try:
             self._ensure_connection()
+            request = player_pb2.MovePlayerRequest()
+            request.target_x = target_x
+            request.target_y = target_y
+            request.movement_type = movement_type
             
-            # Create request
-            request = player_pb2.PlayerMoveRequest(
-                target_x=float(target_x),
-                target_y=float(target_y),
-                movement_type=movement_type
-            )
-            
-            # Add authorization header
+            # Add auth header
             metadata = [('authorization', f'Bearer {token}')]
             
-            # Make the gRPC call
             response = self.player_stub.MovePlayer(request, metadata=metadata)
+            print(f"Move player response: success={response.success}, message={response.message}")
             return response
-            
         except grpc.RpcError as e:
             print(f"gRPC error in move_player: {e.code()} - {e.details()}")
-            raise
+            return None
         except Exception as e:
             print(f"Error in move_player: {e}")
             raise
-    
+
     def update_player_stats(self, token, level=None, experience=None, hp=None, mp=None):
         """Update player stats on server (using PerformAction as a workaround)"""
         try:
-            if not self.channel:
-                self.connect()
+            self._ensure_connection()
             
             # For now, we'll use PerformAction to simulate stat updates
             # In a real implementation, you'd add a specific UpdatePlayerStats RPC
             request = player_pb2.PlayerActionRequest()
-            request.action_type = "update_player_stats"
+            request.action_type = "update_stats"
             
             # Use parameters to send the stats
             if level is not None:
@@ -205,10 +201,7 @@ class GrpcClient:
             metadata = [('authorization', f'Bearer {token}')]
             
             response = self.player_stub.PerformAction(request, metadata=metadata)
-            if response and response.success:
-                print(f"✅ Stats update sent to server: level={level}, exp={experience}")
-            else:
-                print(f"❌ Stats update failed: {response.message if response else 'No response'}")
+            print(f"Stats update sent to server: level={level}, exp={experience}")
             return response
             
         except grpc.RpcError as e:
@@ -221,8 +214,7 @@ class GrpcClient:
     def update_player_position(self, token, position_x=None, position_y=None, facing_direction=None, movement_state=None):
         """Update player position and state on server (using PerformAction)"""
         try:
-            if not self.channel:
-                self.connect()
+            self._ensure_connection()
             
             # Use PerformAction to update position and state
             request = player_pb2.PlayerActionRequest()
@@ -242,10 +234,7 @@ class GrpcClient:
             metadata = [('authorization', f'Bearer {token}')]
             
             response = self.player_stub.PerformAction(request, metadata=metadata)
-            if response and response.success:
-                print(f"✅ Position update sent to server: pos=({position_x},{position_y}), facing={facing_direction}, state={movement_state}")
-            else:
-                print(f"❌ Position update failed: {response.message if response else 'No response'}")
+            print(f"Position update sent to server: pos=({position_x},{position_y}), facing={facing_direction}, state={movement_state}")
             return response
             
         except grpc.RpcError as e:
@@ -254,7 +243,7 @@ class GrpcClient:
         except Exception as e:
             print(f"Error in update_player_position: {e}")
             return None
-    
+
     def close(self):
         """Close the gRPC connection"""
         if self.channel:

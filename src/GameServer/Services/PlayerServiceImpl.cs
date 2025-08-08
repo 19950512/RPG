@@ -235,6 +235,9 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
             player.LastUpdate = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync();
 
+            // Add player to WorldService cache
+            await _worldService.JoinWorldAsync(player.Id);
+
             _logger.LogInformation($"🌍 Player {player.Name} ({player.Id}) is now ONLINE at position ({player.PositionX}, {player.PositionY})");
 
             // Buscar outros players online (opcional - para mostrar quem está no mundo)

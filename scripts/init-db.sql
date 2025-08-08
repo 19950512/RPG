@@ -23,7 +23,28 @@ CREATE TABLE IF NOT EXISTS "Players" (
     "Name" VARCHAR(50) NOT NULL UNIQUE,
     "Vocation" VARCHAR(50) NOT NULL,
     "Experience" INTEGER NOT NULL DEFAULT 0,
-    "Level" INTEGER NOT NULL DEFAULT 1
+    "Level" INTEGER NOT NULL DEFAULT 1,
+    
+    -- Position
+    "PositionX" REAL NOT NULL DEFAULT 960,
+    "PositionY" REAL NOT NULL DEFAULT 704,
+    
+    -- Health and Mana
+    "CurrentHp" INTEGER NOT NULL DEFAULT 100,
+    "MaxHp" INTEGER NOT NULL DEFAULT 100,
+    "CurrentMp" INTEGER NOT NULL DEFAULT 50,
+    "MaxMp" INTEGER NOT NULL DEFAULT 50,
+    
+    -- Combat stats
+    "Attack" INTEGER NOT NULL DEFAULT 10,
+    "Defense" INTEGER NOT NULL DEFAULT 5,
+    "Speed" REAL NOT NULL DEFAULT 100,
+    
+    -- State
+    "MovementState" VARCHAR(20) NOT NULL DEFAULT 'idle',
+    "FacingDirection" INTEGER NOT NULL DEFAULT 0,
+    "IsOnline" BOOLEAN NOT NULL DEFAULT false,
+    "LastUpdate" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ActiveTokens table

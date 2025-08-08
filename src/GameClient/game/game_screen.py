@@ -29,6 +29,13 @@ class GameScreen:
         self.local_player: Optional[Entity] = None
         self.last_network_sync = time.time()
         
+        # Auto-sync settings - sync player data every 5 seconds
+        self.auto_sync_interval = 5.0  # Sync every 5 seconds
+        self.last_auto_sync = 0
+        
+        # Flag to track if we've joined the world
+        self.world_joined = False
+        
         # Initialize world
         self._initialize_world()
     
@@ -91,7 +98,7 @@ class GameScreen:
         self.ui.add_chat_message("Hold SHIFT + arrows to run")
         self.ui.add_chat_message("Press F1 for debug, I for inventory, C for character")
         
-        # Don't join world here - will be called when state becomes active
+        # JoinWorld will be called after the game state is properly initialized
     
     def reset(self):
         """Called when switching to this state"""
@@ -115,6 +122,14 @@ class GameScreen:
                 # Quick attack nearest enemy
                 if self.local_player:
                     self._attack_nearest_enemy()
+            elif event.key == pygame.K_x:
+                # Debug: Add experience for testing
+                if self.local_player:
+                    self.local_player.stats.experience += 50
+                    self.ui.add_chat_message("Debug: Added 50 XP!")
+                    # Auto-sync debug XP to server
+                    self._sync_player_stats_to_server()
+                    self._check_level_up()
             
             # Movement with arrow keys
             elif event.key == pygame.K_UP:
@@ -204,6 +219,9 @@ class GameScreen:
                 self.local_player.take_damage(damage)
                 self.ui.add_chat_message(f"{target.name} hits you for {damage} damage!")
                 
+                # Auto-sync HP changes after taking damage
+                self._sync_player_stats_to_server()
+                
                 if self.local_player.stats.hp <= 0:
                     self.ui.add_chat_message("You have died! Respawning...")
                     self._respawn_player()
@@ -216,6 +234,9 @@ class GameScreen:
                     exp_gained = target.stats.level * 10
                     self.local_player.stats.experience += exp_gained
                     self.ui.add_chat_message(f"Gained {exp_gained} experience!")
+                    
+                    # Auto-sync experience gained to server
+                    self._sync_player_stats_to_server()
                     
                     # Check level up
                     self._check_level_up()
@@ -263,6 +284,7 @@ class GameScreen:
         
         exp_needed = self.local_player.stats.level * 100
         if self.local_player.stats.experience >= exp_needed:
+            old_level = self.local_player.stats.level
             self.local_player.stats.level += 1
             self.local_player.stats.experience -= exp_needed
             
@@ -275,6 +297,58 @@ class GameScreen:
             self.local_player.stats.defense += 1
             
             self.ui.add_chat_message(f"Level up! You are now level {self.local_player.stats.level}!")
+            
+            # Sync with server
+            self._sync_player_stats_to_server()
+            print(f"📊 Level up synced: {old_level} -> {self.local_player.stats.level}")
+    
+    def _sync_player_stats_to_server(self):
+        """Sync current player stats to server"""
+        if not self.local_player or not hasattr(self.game, 'auth_token') or not self.game.auth_token:
+            return
+        
+        try:
+            grpc_client.update_player_stats(
+                self.game.auth_token,
+                level=self.local_player.stats.level,
+                experience=self.local_player.stats.experience,
+                hp=self.local_player.stats.hp,
+                mp=self.local_player.stats.mp
+            )
+            print(f"📊 Stats synced to server: Level {self.local_player.stats.level}, EXP {self.local_player.stats.experience}, HP {self.local_player.stats.hp}/{self.local_player.stats.max_hp}")
+        except Exception as e:
+            print(f"Error syncing stats to server: {e}")
+    
+    def _sync_player_position_to_server(self):
+        """Sync current player position and state to server"""
+        if not self.local_player or not hasattr(self.game, 'auth_token') or not self.game.auth_token:
+            return
+        
+        try:
+            # Send position and all relevant state info
+            grpc_client.update_player_position(
+                self.game.auth_token,
+                position_x=self.local_player.x,
+                position_y=self.local_player.y,
+                facing_direction=self.local_player.facing_direction,
+                movement_state=self.local_player.movement_state
+            )
+            print(f"📍 Position synced to server: ({self.local_player.x:.0f}, {self.local_player.y:.0f}), facing={self.local_player.facing_direction}, state={self.local_player.movement_state}")
+        except Exception as e:
+            print(f"Error syncing position to server: {e}")
+    
+    def _sync_all_player_data_to_server(self):
+        """Sync all player data to server (comprehensive sync)"""
+        if not self.local_player or not hasattr(self.game, 'auth_token') or not self.game.auth_token:
+            return
+        
+        try:
+            # Sync stats and position together
+            self._sync_player_stats_to_server()
+            self._sync_player_position_to_server()
+            print(f"🔄 Complete player data synced to server")
+        except Exception as e:
+            print(f"Error syncing all player data to server: {e}")
     
     def _respawn_player(self):
         """Respawn the player"""
@@ -291,6 +365,10 @@ class GameScreen:
         self.local_player.target_y = world_y
         self.local_player.stats.hp = self.local_player.stats.max_hp
         self.local_player.movement_state = MovementState.IDLE
+        
+        # Auto-sync respawn to server
+        self._sync_all_player_data_to_server()
+        self.ui.add_chat_message("Respawned and synced to server!")
     
     def _process_chat_command(self, command: str):
         """Process chat commands"""
@@ -305,6 +383,8 @@ class GameScreen:
                 elif cmd == "heal":
                     self.local_player.stats.hp = self.local_player.stats.max_hp
                     self.ui.add_chat_message("Fully healed!")
+                    # Auto-sync healing to server
+                    self._sync_player_stats_to_server()
                 elif cmd == "teleport" and len(parts) >= 3:
                     try:
                         x = float(parts[1])
@@ -314,6 +394,8 @@ class GameScreen:
                         self.local_player.target_x = x
                         self.local_player.target_y = y
                         self.ui.add_chat_message(f"Teleported to ({x}, {y})")
+                        # Auto-sync teleport position to server
+                        self._sync_player_position_to_server()
                     except ValueError:
                         self.ui.add_chat_message("Invalid coordinates")
                 elif cmd == "spawn" and len(parts) >= 2:
@@ -351,14 +433,27 @@ class GameScreen:
     
     def update(self, dt: float = 0):
         """Update game state"""
+        # Join world once when auth token is available
+        if not self.world_joined and hasattr(self.game, 'auth_token') and self.game.auth_token:
+            self._join_world_on_server()
+            self.world_joined = True
+        
         # Update camera
         self.camera.update(dt)
         
         # Update all entities
         self.entity_manager.update_all(dt, self.game_map)
         
-        # Network sync (in real multiplayer)
+        # Auto-sync player data to server periodically
         current_time = time.time()
+        if current_time - self.last_auto_sync > self.auto_sync_interval:
+            if self.local_player and hasattr(self.game, 'auth_token') and self.game.auth_token:
+                self._sync_all_player_data_to_server()
+                self.ui.add_chat_message("🔄 Auto-sync: Player data saved to server")
+                print(f"🕐 Auto-sync triggered: {current_time:.1f}")
+            self.last_auto_sync = current_time
+        
+        # Network sync (in real multiplayer)
         if current_time - self.last_network_sync > 0.1:  # 10 times per second
             self._network_sync()
             self.last_network_sync = current_time
@@ -399,12 +494,28 @@ class GameScreen:
                 if response.success:
                     self.ui.add_chat_message(f"🌍 {response.message}")
                     
-                    # Update local player position from server
+                    # Update local player data from server
                     if response.player:
+                        # Sync position
                         self.local_player.x = response.player.position_x
                         self.local_player.y = response.player.position_y
                         self.local_player.name = response.player.name
+                        
+                        # Sync stats from server (this overwrites local data with server data)
+                        self.local_player.stats.level = response.player.level
+                        self.local_player.stats.experience = response.player.experience
+                        self.local_player.stats.hp = response.player.current_hp
+                        self.local_player.stats.max_hp = response.player.max_hp
+                        self.local_player.stats.mp = response.player.current_mp
+                        self.local_player.stats.max_mp = response.player.max_mp
+                        self.local_player.stats.attack = response.player.attack
+                        self.local_player.stats.defense = response.player.defense
+                        self.local_player.facing_direction = response.player.facing_direction
+                        self.local_player.movement_state = response.player.movement_state
+                        
                         self.ui.add_chat_message(f"📍 Position: ({response.player.position_x:.0f}, {response.player.position_y:.0f})")
+                        self.ui.add_chat_message(f"📊 Server Data: Level {response.player.level}, EXP {response.player.experience}")
+                        print(f"📊 Player data synced from server: Level {response.player.level}, EXP {response.player.experience}")
                     
                     # Show other online players
                     if response.other_players:
@@ -483,6 +594,8 @@ class GameScreen:
                 )
                 if response.success:
                     self.ui.add_chat_message(f"🚀 Server: {response.message}")
+                    # Auto-sync position after successful movement
+                    self._sync_player_position_to_server()
                 else:
                     self.ui.add_chat_message(f"❌ Move failed: {response.message}")
             else:

@@ -183,7 +183,14 @@ public class WorldService : IWorldService
         {
             if (!_onlinePlayers.TryGetValue(playerId, out var player))
             {
+                _logger.LogWarning("🚫 Player {PlayerId} not found in online players for action {ActionType}", playerId, actionType);
                 return false;
+            }
+
+            _logger.LogInformation("🎮 Action received: {ActionType} for player {PlayerName} (ID: {PlayerId})", actionType, player.Name, playerId);
+            if (parameters != null && parameters.Any())
+            {
+                _logger.LogInformation("📝 Action parameters: {Parameters}", string.Join(", ", parameters.Select(p => $"{p.Key}={p.Value}")));
             }
 
             switch (actionType.ToLower())
@@ -194,8 +201,14 @@ public class WorldService : IWorldService
                     return await HandleHealAction(player);
                 case "chat":
                     return await HandleChatAction(player, parameters);
+                case "update_player_stats":
+                    _logger.LogInformation("🎯 Received update_player_stats action for player {PlayerName}", player.Name);
+                    return await HandleUpdateStatsAction(player, parameters);
+                case "update_position":
+                    _logger.LogInformation("📍 Received update_position action for player {PlayerName}", player.Name);
+                    return await HandleUpdatePositionAction(player, parameters);
                 default:
-                    _logger.LogWarning("Unknown action type: {ActionType}", actionType);
+                    _logger.LogWarning("❌ Unknown action type: {ActionType} for player {PlayerName}", actionType, player.Name);
                     return false;
             }
         }
@@ -338,6 +351,124 @@ public class WorldService : IWorldService
         }
 
         return Task.FromResult(false);
+    }
+
+    private async Task<bool> HandleUpdateStatsAction(Player player, Dictionary<string, string>? parameters)
+    {
+        try
+        {
+            if (parameters == null)
+                return false;
+
+            // Update player stats from parameters
+            if (parameters.TryGetValue("level", out var levelStr) && int.TryParse(levelStr, out var level))
+            {
+                player.Level = level;
+                _logger.LogInformation("Updated player {PlayerName} level to {Level}", player.Name, level);
+            }
+
+            if (parameters.TryGetValue("experience", out var expStr) && int.TryParse(expStr, out var experience))
+            {
+                player.Experience = experience;
+                _logger.LogInformation("Updated player {PlayerName} experience to {Experience}", player.Name, experience);
+            }
+
+            if (parameters.TryGetValue("hp", out var hpStr) && int.TryParse(hpStr, out var hp))
+            {
+                player.CurrentHp = hp;
+                _logger.LogInformation("Updated player {PlayerName} HP to {HP}", player.Name, hp);
+            }
+
+            if (parameters.TryGetValue("mp", out var mpStr) && int.TryParse(mpStr, out var mp))
+            {
+                player.CurrentMp = mp;
+                _logger.LogInformation("Updated player {PlayerName} MP to {MP}", player.Name, mp);
+            }
+
+            // Save changes to database
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+            
+            var dbPlayer = await dbContext.Players.FirstOrDefaultAsync(p => p.Id == player.Id);
+            if (dbPlayer != null)
+            {
+                dbPlayer.Level = player.Level;
+                dbPlayer.Experience = player.Experience;
+                dbPlayer.CurrentHp = player.CurrentHp;
+                dbPlayer.CurrentMp = player.CurrentMp;
+                
+                await dbContext.SaveChangesAsync();
+                _logger.LogInformation("Player {PlayerName} stats saved to database successfully", player.Name);
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating stats for player {PlayerName}", player.Name);
+            return false;
+        }
+    }
+
+    private async Task<bool> HandleUpdatePositionAction(Player player, Dictionary<string, string>? parameters)
+    {
+        try
+        {
+            if (parameters == null)
+                return false;
+
+            // Update player position and state from parameters
+            if (parameters.TryGetValue("position_x", out var posXStr) && float.TryParse(posXStr, out var positionX))
+            {
+                player.PositionX = positionX;
+                _logger.LogInformation("Updated player {PlayerName} position X to {PositionX}", player.Name, positionX);
+            }
+
+            if (parameters.TryGetValue("position_y", out var posYStr) && float.TryParse(posYStr, out var positionY))
+            {
+                player.PositionY = positionY;
+                _logger.LogInformation("Updated player {PlayerName} position Y to {PositionY}", player.Name, positionY);
+            }
+
+            if (parameters.TryGetValue("facing_direction", out var facingStr) && int.TryParse(facingStr, out var facingDirection))
+            {
+                player.FacingDirection = facingDirection;
+                _logger.LogInformation("Updated player {PlayerName} facing direction to {FacingDirection}", player.Name, facingDirection);
+            }
+
+            if (parameters.TryGetValue("movement_state", out var movementStr))
+            {
+                player.MovementState = movementStr;
+                _logger.LogInformation("Updated player {PlayerName} movement state to {MovementState}", player.Name, movementStr);
+            }
+
+            // Update LastUpdate timestamp
+            player.LastUpdate = DateTime.UtcNow;
+
+            // Save changes to database
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+            
+            var dbPlayer = await dbContext.Players.FirstOrDefaultAsync(p => p.Id == player.Id);
+            if (dbPlayer != null)
+            {
+                dbPlayer.PositionX = player.PositionX;
+                dbPlayer.PositionY = player.PositionY;
+                dbPlayer.FacingDirection = player.FacingDirection;
+                dbPlayer.MovementState = player.MovementState;
+                dbPlayer.LastUpdate = player.LastUpdate;
+                
+                await dbContext.SaveChangesAsync();
+                _logger.LogInformation("Player {PlayerName} position saved to database successfully: ({X}, {Y})", player.Name, player.PositionX, player.PositionY);
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating position for player {PlayerName}", player.Name);
+            return false;
+        }
     }
 
     public void Dispose()
