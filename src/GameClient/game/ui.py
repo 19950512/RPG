@@ -19,8 +19,8 @@ class Camera:
         # Camera bounds
         self.min_x = 0
         self.min_y = 0
-        self.max_x = 1000
-        self.max_y = 1000
+        self.max_x = 10000
+        self.max_y = 10000
     
     def update(self, dt: float):
         """Update camera position"""
@@ -146,10 +146,11 @@ class UI:
                     world_x, world_y = camera.screen_to_world(event.pos[0], event.pos[1])
                     return f"click:{world_x},{world_y}"
             
-            elif event.button == 3:  # Right click
-                if not self._is_clicking_ui(event.pos):
-                    world_x, world_y = camera.screen_to_world(event.pos[0], event.pos[1])
-                    return f"move:{world_x},{world_y}"
+            # Right click movement disabled
+            # elif event.button == 3:  # Right click
+            #     if not self._is_clicking_ui(event.pos):
+            #         world_x, world_y = camera.screen_to_world(event.pos[0], event.pos[1])
+            #         return f"move:{world_x},{world_y}"
         
         return None
     

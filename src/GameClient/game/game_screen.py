@@ -102,9 +102,10 @@ class GameScreen:
         
         # Add welcome message
         self.ui.add_chat_message("Welcome to the RPG world!")
-        self.ui.add_chat_message("Use ARROW KEYS to move, or right-click on map")
+        self.ui.add_chat_message("Use ARROW KEYS or WASD to move")
         self.ui.add_chat_message("Hold SHIFT + arrows to run")
-        self.ui.add_chat_message("Press F1 for debug, I for inventory, C for character")
+        self.ui.add_chat_message("Press F1 to attack, ' for stats, F11 for fullscreen")
+        self.ui.add_chat_message("Press I for inventory, C for character")
         
         # JoinWorld will be called after the game state is properly initialized
     
@@ -215,7 +216,7 @@ class GameScreen:
                 self._cleanup_world_state()
                 
                 self.game.switch_state("char_select")
-            elif event.key == pygame.K_SPACE:
+            elif event.key == pygame.K_F1:
                 # Quick attack nearest enemy
                 if self.local_player:
                     self._attack_nearest_enemy()
@@ -227,16 +228,22 @@ class GameScreen:
                     # Auto-sync debug XP to server
                     self._sync_player_stats_to_server()
                     self._check_level_up()
+            elif event.key == pygame.K_QUOTE:  # ' key
+                # Debug: Display player stats
+                if self.local_player:
+                    stats = self.local_player.stats
+                    self.ui.add_chat_message("=== DEBUG STATS ===")
+                    self.ui.add_chat_message(f"Level: {stats.level} | XP: {stats.experience}")
+                    self.ui.add_chat_message(f"HP: {stats.hp}/{stats.max_hp} | MP: {stats.mp}/{stats.max_mp}")
+                    self.ui.add_chat_message(f"Attack: {stats.attack} | Defense: {stats.defense}")
+                    self.ui.add_chat_message(f"Position: ({self.local_player.x:.0f}, {self.local_player.y:.0f})")
+                    self.ui.add_chat_message(f"Facing: {self.local_player.facing_direction} | State: {self.local_player.movement_state}")
+            elif event.key == pygame.K_F11:
+                # Toggle fullscreen
+                self._toggle_fullscreen()
             
-            # Movement with arrow keys
-            elif event.key == pygame.K_UP:
-                self._move_player_by_direction(0, -1)
-            elif event.key == pygame.K_DOWN:
-                self._move_player_by_direction(0, 1)
-            elif event.key == pygame.K_LEFT:
-                self._move_player_by_direction(-1, 0)
-            elif event.key == pygame.K_RIGHT:
-                self._move_player_by_direction(1, 0)
+            # Note: Arrow key movement is now handled in _handle_continuous_movement()
+            # which is called from update() method for smooth continuous movement
     
     def _process_action(self, action: str):
         """Process UI actions"""
@@ -402,50 +409,88 @@ class GameScreen:
     def _sync_player_stats_to_server(self):
         """Sync current player stats to server"""
         if not self.local_player or not hasattr(self.game, 'auth_token') or not self.game.auth_token:
-            return
+            return False
         
         try:
-            grpc_client.update_player_stats(
+            response = grpc_client.update_player_stats(
                 self.game.auth_token,
                 level=self.local_player.stats.level,
                 experience=self.local_player.stats.experience,
                 hp=self.local_player.stats.hp,
                 mp=self.local_player.stats.mp
             )
-            print(f"📊 Stats synced to server: Level {self.local_player.stats.level}, EXP {self.local_player.stats.experience}, HP {self.local_player.stats.hp}/{self.local_player.stats.max_hp}")
+            
+            if response and response.success:
+                print(f"📊 Stats synced to server: Level {self.local_player.stats.level}, EXP {self.local_player.stats.experience}, HP {self.local_player.stats.hp}/{self.local_player.stats.max_hp}")
+                return True
+            else:
+                error_msg = response.message if response else "No response from server"
+                print(f"❌ Stats update failed: {error_msg}")
+                self.ui.add_chat_message(f"⚠️ Stats sync failed: {error_msg}")
+                return False
+                
         except Exception as e:
-            print(f"Error syncing stats to server: {e}")
+            print(f"❌ Error syncing stats to server: {e}")
+            self.ui.add_chat_message(f"⚠️ Stats sync error: {str(e)}")
+            return False
     
     def _sync_player_position_to_server(self):
         """Sync current player position and state to server"""
         if not self.local_player or not hasattr(self.game, 'auth_token') or not self.game.auth_token:
-            return
+            return False
         
         try:
             # Send position and all relevant state info
-            grpc_client.update_player_position(
+            response = grpc_client.update_player_position(
                 self.game.auth_token,
                 position_x=self.local_player.x,
                 position_y=self.local_player.y,
                 facing_direction=self.local_player.facing_direction,
                 movement_state=self.local_player.movement_state
             )
-            print(f"📍 Position synced to server: ({self.local_player.x:.0f}, {self.local_player.y:.0f}), facing={self.local_player.facing_direction}, state={self.local_player.movement_state}")
+            
+            if response and response.success:
+                print(f"📍 Position synced to server: ({self.local_player.x:.0f}, {self.local_player.y:.0f}), facing={self.local_player.facing_direction}, state={self.local_player.movement_state}")
+                return True
+            else:
+                error_msg = response.message if response else "No response from server"
+                print(f"❌ Position update failed: {error_msg}")
+                self.ui.add_chat_message(f"⚠️ Position sync failed: {error_msg}")
+                return False
+                
         except Exception as e:
-            print(f"Error syncing position to server: {e}")
+            print(f"❌ Error syncing position to server: {e}")
+            self.ui.add_chat_message(f"⚠️ Position sync error: {str(e)}")
+            return False
     
     def _sync_all_player_data_to_server(self):
         """Sync all player data to server (comprehensive sync)"""
         if not self.local_player or not hasattr(self.game, 'auth_token') or not self.game.auth_token:
-            return
+            return False
         
         try:
-            # Sync stats and position together
-            self._sync_player_stats_to_server()
-            self._sync_player_position_to_server()
-            print(f"🔄 Complete player data synced to server")
+            # Sync stats and position separately and check results
+            stats_success = self._sync_player_stats_to_server()
+            position_success = self._sync_player_position_to_server()
+            
+            if stats_success and position_success:
+                print(f"🔄 Complete player data synced to server successfully")
+                return True
+            else:
+                failed_items = []
+                if not stats_success:
+                    failed_items.append("stats")
+                if not position_success:
+                    failed_items.append("position")
+                
+                print(f"⚠️ Partial sync failure: {', '.join(failed_items)} failed")
+                self.ui.add_chat_message(f"⚠️ Sync incomplete: {', '.join(failed_items)} failed")
+                return False
+                
         except Exception as e:
-            print(f"Error syncing all player data to server: {e}")
+            print(f"❌ Error syncing all player data to server: {e}")
+            self.ui.add_chat_message(f"⚠️ Complete sync error: {str(e)}")
+            return False
     
     def _respawn_player(self):
         """Respawn the player"""
@@ -528,6 +573,29 @@ class GameScreen:
         self.entity_manager.add_entity(monster)
         self.ui.add_chat_message("Spawned a monster nearby!")
     
+    def _toggle_fullscreen(self):
+        """Toggle between fullscreen and windowed mode"""
+        try:
+            # Get current display info
+            current_flags = pygame.display.get_surface().get_flags()
+            
+            if current_flags & pygame.FULLSCREEN:
+                # Currently fullscreen, switch to windowed
+                pygame.display.set_mode((self.game.screen_width, self.game.screen_height))
+                self.ui.add_chat_message("🖼️ Switched to windowed mode")
+                print("🖼️ Switched to windowed mode")
+            else:
+                # Currently windowed, switch to fullscreen
+                # Get the native screen resolution
+                info = pygame.display.Info()
+                pygame.display.set_mode((info.current_w, info.current_h), pygame.FULLSCREEN)
+                self.ui.add_chat_message("🖥️ Switched to fullscreen mode")
+                print(f"🖥️ Switched to fullscreen mode ({info.current_w}x{info.current_h})")
+                
+        except Exception as e:
+            self.ui.add_chat_message(f"❌ Failed to toggle fullscreen: {str(e)}")
+            print(f"❌ Error toggling fullscreen: {e}")
+    
     def update(self, dt: float = 0):
         """Update game state"""
         # Join world once when auth token is available
@@ -537,6 +605,9 @@ class GameScreen:
 
         # Process world updates from streaming thread
         self._process_world_updates_queue()
+        
+        # Handle continuous movement (check pressed keys)
+        self._handle_continuous_movement()
         
         # Update camera
         self.camera.update(dt)
@@ -548,9 +619,12 @@ class GameScreen:
         current_time = time.time()
         if current_time - self.last_auto_sync > self.auto_sync_interval:
             if self.local_player and hasattr(self.game, 'auth_token') and self.game.auth_token:
-                self._sync_all_player_data_to_server()
-                self.ui.add_chat_message("🔄 Auto-sync: Player data saved to server")
-                print(f"🕐 Auto-sync triggered: {current_time:.1f}")
+                sync_success = self._sync_all_player_data_to_server()
+                if sync_success:
+                    self.ui.add_chat_message("🔄 Auto-sync: Player data saved to server")
+                else:
+                    self.ui.add_chat_message("⚠️ Auto-sync: Some data failed to save")
+                print(f"🕐 Auto-sync triggered: {current_time:.1f} - Success: {sync_success}")
             self.last_auto_sync = current_time
         
         # Network sync (in real multiplayer)
@@ -568,20 +642,114 @@ class GameScreen:
         # 5. Sync chat messages
         pass
     
+    def _handle_continuous_movement(self):
+        """Handle continuous movement while keys are held down"""
+        if not self.local_player:
+            return
+            
+        # Get currently pressed keys
+        keys = pygame.key.get_pressed()
+        
+        # Check for movement keys
+        dx, dy = 0, 0
+        
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            dy = -1
+        elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            dy = 1
+            
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            dx = -1
+        elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            dx = 1
+        
+        # Only move if a direction key is pressed
+        if dx != 0 or dy != 0:
+            # Calculate movement distance
+            move_distance = 32  # pixels per move
+            
+            # Calculate new position
+            new_x = self.local_player.x + (dx * move_distance)
+            new_y = self.local_player.y + (dy * move_distance)
+            
+            # Determine movement type (check for shift for running)
+            movement_type = "run" if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] else "walk"
+            
+            # Add a small delay between movements to make it controllable
+            current_time = time.time()
+            if not hasattr(self, 'last_continuous_move') or current_time - self.last_continuous_move > 0.15:
+                self.last_continuous_move = current_time
+                self._process_movement(new_x, new_y, movement_type)
+    
     def draw(self, screen: pygame.Surface):
         """Draw the game world"""
-        # Clear screen
-        screen.fill((20, 20, 40))
+        # Get the current screen size
+        screen_width = screen.get_width()
+        screen_height = screen.get_height()
         
-        # Draw map
-        self.game_map.draw(screen, self.camera.x, self.camera.y, 
-                          self.game.screen_width, self.game.screen_height)
-        
-        # Draw entities
-        self.entity_manager.draw_all(screen, self.camera.x, self.camera.y)
-        
-        # Draw UI
-        self.ui.draw(screen, self.local_player, 16)  # Assuming 60 FPS
+        # If in fullscreen mode with different resolution than base
+        if screen_width != self.game.screen_width or screen_height != self.game.screen_height:
+            # Calculate integer scaling factors for crisp pixel art
+            scale_x = screen_width // self.game.screen_width
+            scale_y = screen_height // self.game.screen_height
+            scale = max(1, min(scale_x, scale_y))  # Use integer scaling, minimum 1
+            
+            # If no good integer scale, fall back to smooth scaling
+            if scale == 1 and (screen_width > self.game.screen_width or screen_height > self.game.screen_height):
+                scale_x = screen_width / self.game.screen_width
+                scale_y = screen_height / self.game.screen_height
+                scale = min(scale_x, scale_y)
+                use_smooth_scaling = True
+            else:
+                use_smooth_scaling = False
+            
+            # Calculate centered position for scaled content
+            scaled_width = int(self.game.screen_width * scale)
+            scaled_height = int(self.game.screen_height * scale)
+            offset_x = (screen_width - scaled_width) // 2
+            offset_y = (screen_height - scaled_height) // 2
+            
+            # Clear screen with black background
+            screen.fill((0, 0, 0))
+            
+            # Create a temporary surface with our base resolution
+            temp_surface = pygame.Surface((self.game.screen_width, self.game.screen_height))
+            
+            # Draw everything on the temporary surface
+            temp_surface.fill((20, 20, 40))
+            
+            # Draw map
+            self.game_map.draw(temp_surface, self.camera.x, self.camera.y, 
+                              self.game.screen_width, self.game.screen_height)
+            
+            # Draw entities
+            self.entity_manager.draw_all(temp_surface, self.camera.x, self.camera.y)
+            
+            # Draw UI
+            self.ui.draw(temp_surface, self.local_player, 16)
+            
+            # Scale with appropriate method
+            if use_smooth_scaling:
+                # Use smoothscale for non-integer scaling
+                scaled_surface = pygame.transform.smoothscale(temp_surface, (scaled_width, scaled_height))
+            else:
+                # Use regular scale for integer scaling (crisp pixels)
+                scaled_surface = pygame.transform.scale(temp_surface, (scaled_width, scaled_height))
+            
+            screen.blit(scaled_surface, (offset_x, offset_y))
+        else:
+            # Normal windowed mode, draw directly
+            screen.fill((20, 20, 40))
+            
+            # Draw map
+            self.game_map.draw(screen, self.camera.x, self.camera.y, 
+                              self.game.screen_width, self.game.screen_height)
+            
+            # Draw entities
+            self.entity_manager.draw_all(screen, self.camera.x, self.camera.y)
+            
+            # Draw UI
+            self.ui.draw(screen, self.local_player, 16)
     
     def _join_world_on_server(self):
         """Join the world on the server"""
@@ -697,17 +865,20 @@ class GameScreen:
                     target_y, 
                     movement_type
                 )
-                if response.success:
+                if response and response.success:
                     self.ui.add_chat_message(f"🚀 Server: {response.message}")
-                    # Auto-sync position after successful movement
+                    # Only sync position after successful movement
                     self._sync_player_position_to_server()
                 else:
-                    self.ui.add_chat_message(f"❌ Move failed: {response.message}")
+                    error_msg = response.message if response else "Unknown error"
+                    self.ui.add_chat_message(f"❌ Move failed: {error_msg}")
+                    print(f"❌ Movement failed: {error_msg}")
             else:
                 self.ui.add_chat_message("❌ No authentication token for movement")
+                print("❌ No auth token available for movement")
         except Exception as e:
             self.ui.add_chat_message(f"❌ Movement error: {str(e)}")
-            print(f"Error moving player: {e}")
+            print(f"❌ Error moving player: {e}")
 
     def reset(self):
         """Reset game state when entering"""
