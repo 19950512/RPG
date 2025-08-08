@@ -88,4 +88,84 @@ public class JwtAuthInterceptor : Interceptor
 
         return await continuation(request, context);
     }
+
+    public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
+        TRequest request,
+        IServerStreamWriter<TResponse> responseStream,
+        ServerCallContext context,
+        ServerStreamingServerMethod<TRequest, TResponse> continuation)
+    {
+        var method = context.Method;
+        
+        _logger.LogInformation("🌊 Streaming authentication for method: {Method}", method);
+        
+        // Skip authentication for public methods
+        if (_publicMethods.Contains(method))
+        {
+            _logger.LogInformation("🔓 Public method, skipping auth: {Method}", method);
+            await continuation(request, responseStream, context);
+            return;
+        }
+
+        // Extract JWT token from metadata
+        var authHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "authorization");
+        if (authHeader == null)
+        {
+            _logger.LogWarning("❌ Missing authorization header for streaming method: {Method}", method);
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Missing authorization header"));
+        }
+
+        var token = authHeader.Value;
+        _logger.LogInformation("🔑 Found auth header for streaming: {Method}, token length: {Length}", method, token?.Length ?? 0);
+        
+        if (string.IsNullOrEmpty(token) || !token.StartsWith("Bearer "))
+        {
+            _logger.LogWarning("❌ Invalid authorization header format for streaming method: {Method}", method);
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid authorization header format"));
+        }
+
+        // Remove "Bearer " prefix
+        token = token.Substring(7);
+        _logger.LogInformation("🔍 Processing token for streaming: {Method}, clean token length: {Length}", method, token.Length);
+
+        // Check if the token is in the active tokens list in the database
+        var isTokenActive = await _jwtTokenService.IsTokenActiveAsync(token);
+        _logger.LogInformation("🗃️ Token active check for streaming: {Method}, active: {Active}", method, isTokenActive);
+        
+        if (!isTokenActive)
+        {
+            _logger.LogWarning("❌ Token is not active or has been revoked for streaming: {Method}", method);
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Token has been revoked or is invalid."));
+        }
+
+        // Validate JWT token
+        var principal = _jwtTokenService.ValidateToken(token);
+        _logger.LogInformation("👤 Token validation for streaming: {Method}, valid: {Valid}", method, principal != null);
+        
+        if (principal == null)
+        {
+            _logger.LogWarning("❌ Invalid JWT token for streaming method: {Method}", method);
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid or expired token"));
+        }
+
+        // Add user context to gRPC context
+        var accountId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var email = principal.FindFirst(ClaimTypes.Email)?.Value;
+
+        _logger.LogInformation("🔐 Extracted claims for streaming: {Method}, accountId: {AccountId}, email: {Email}", method, accountId, email);
+
+        if (string.IsNullOrEmpty(accountId))
+        {
+            _logger.LogWarning("❌ Missing account ID in JWT token for streaming method: {Method}", method);
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid token claims"));
+        }
+
+        // Add custom headers with user info for the service to use
+        context.RequestHeaders.Add("x-account-id", accountId);
+        context.RequestHeaders.Add("x-account-email", email ?? "");
+
+        _logger.LogInformation("✅ Authenticated streaming request for account {AccountId} on method {Method}", accountId, method);
+
+        await continuation(request, responseStream, context);
+    }
 }

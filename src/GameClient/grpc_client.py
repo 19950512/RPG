@@ -255,6 +255,57 @@ class GrpcClient:
             print(f"Error in update_player_position: {e}")
             return None
     
+    def get_world_state(self, auth_token):
+        """Get current world state from server (polling-based)"""
+        try:
+            self._ensure_connection()
+            
+            # Prepare metadata with auth token
+            metadata = [('authorization', f'Bearer {auth_token}')]
+            
+            # Create request
+            request = player_pb2.GetWorldStateRequest()
+            
+            # Make the call
+            response = self.player_stub.GetWorldState(request, metadata=metadata)
+            
+            print(f"🌍 Received world state with {len(response.players)} players")
+            return response
+                
+        except grpc.RpcError as e:
+            print(f"gRPC error in get_world_state: {e.code()} - {e.details()}")
+            return None
+        except Exception as e:
+            print(f"Error in get_world_state: {e}")
+            return None
+
+    def get_world_updates(self, auth_token):
+        """Get streaming world updates from server"""
+        try:
+            self._ensure_connection()
+            
+            # Prepare metadata with auth token
+            metadata = [('authorization', f'Bearer {auth_token}')]
+            
+            # Create request
+            request = player_pb2.WorldUpdateRequest()
+            
+            # Get streaming response
+            response_iterator = self.player_stub.GetWorldUpdates(request, metadata=metadata)
+            
+            print("🌍 Started receiving world updates stream")
+            
+            # Yield each update
+            for response in response_iterator:
+                yield response
+                
+        except grpc.RpcError as e:
+            print(f"gRPC error in get_world_updates: {e.code()} - {e.details()}")
+            return
+        except Exception as e:
+            print(f"Error in get_world_updates: {e}")
+            return
+    
     def close(self):
         """Close the gRPC connection"""
         if self.channel:

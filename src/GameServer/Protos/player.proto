@@ -68,6 +68,16 @@ message PlayerActionResponse {
   repeated PlayerInfo affected_players = 3;
 }
 
+// Polling-based world state (alternative to streaming)
+message GetWorldStateRequest {
+  // Empty - uses JWT for account identification
+}
+
+message GetWorldStateResponse {
+  repeated PlayerInfo players = 1;
+  int64 timestamp = 2;
+}
+
 message PlayerInfo {
   string id = 1;
   string name = 2;
@@ -106,6 +116,9 @@ service PlayerService {
   rpc MovePlayer(PlayerMoveRequest) returns (PlayerMoveResponse);
   rpc PerformAction(PlayerActionRequest) returns (PlayerActionResponse);
   
-  // Real-time updates
+  // World state
+  rpc GetWorldState(GetWorldStateRequest) returns (GetWorldStateResponse);
+  
+  // Real-time updates (streaming - experimental)
   rpc GetWorldUpdates(WorldUpdateRequest) returns (stream WorldUpdateResponse);
 }

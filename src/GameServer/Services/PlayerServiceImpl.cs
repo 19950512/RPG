@@ -447,6 +447,32 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
         }
     }
 
+    public override async Task<GetWorldStateResponse> GetWorldState(GetWorldStateRequest request, ServerCallContext context)
+    {
+        var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
+        if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
+        }
+
+        _logger.LogInformation("🌍 Getting world state for account {AccountId}", accountId);
+
+        var onlinePlayers = await _worldService.GetOnlinePlayersAsync();
+        
+        var response = new GetWorldStateResponse
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+
+        foreach (var player in onlinePlayers)
+        {
+            response.Players.Add(ConvertToPlayerInfo(player));
+        }
+
+        _logger.LogInformation("🎯 Returning world state with {PlayerCount} players", response.Players.Count);
+        return response;
+    }
+
     public override async Task GetWorldUpdates(WorldUpdateRequest request, IServerStreamWriter<WorldUpdateResponse> responseStream, ServerCallContext context)
     {
         var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");

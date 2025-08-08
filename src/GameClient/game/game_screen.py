@@ -1,6 +1,8 @@
 import pygame
 import time
 import uuid
+import queue
+import threading
 from typing import Optional
 from .world import GameMap
 from .entities import Entity, EntityManager, EntityType, MovementState
@@ -35,6 +37,9 @@ class GameScreen:
         
         # Flag to track if we've joined the world
         self.world_joined = False
+        
+        # Thread-safe queue for world updates
+        self.world_updates_queue = queue.Queue()
         
         # Initialize world
         self._initialize_world()
@@ -437,6 +442,9 @@ class GameScreen:
         if not self.world_joined and hasattr(self.game, 'auth_token') and self.game.auth_token:
             self._join_world_on_server()
             self.world_joined = True
+
+        # Process world updates from streaming thread
+        self._process_world_updates_queue()
         
         # Update camera
         self.camera.update(dt)
@@ -520,6 +528,11 @@ class GameScreen:
                     # Show other online players
                     if response.other_players:
                         self.ui.add_chat_message(f"👥 {len(response.other_players)} other players online")
+                        # Add other players as entities
+                        self._add_other_players(response.other_players)
+                    
+                    # Start world updates stream for real-time multiplayer
+                    self._start_world_updates_stream()
                 else:
                     self.ui.add_chat_message(f"❌ Failed to join world: {response.message}")
                     print(f"❌ DEBUG: Failed to join world: {response.message}")
@@ -608,3 +621,126 @@ class GameScreen:
         """Reset game state when entering"""
         # Could reload from save or reset to initial state
         pass
+    
+    def _add_other_players(self, other_players):
+        """Add other players as entities to the game world"""
+        for player_info in other_players:
+            if player_info.is_online and player_info.id != self.local_player.id:
+                # Check if player already exists
+                existing_entity = self.entity_manager.get_entity(f"player_{player_info.id}")
+                
+                if existing_entity:
+                    # Update existing player
+                    existing_entity.x = player_info.position_x
+                    existing_entity.y = player_info.position_y
+                    existing_entity.name = player_info.name
+                    existing_entity.stats.level = player_info.level
+                    existing_entity.stats.hp = player_info.current_hp
+                    existing_entity.stats.max_hp = player_info.max_hp
+                    existing_entity.facing_direction = player_info.facing_direction
+                    existing_entity.movement_state = player_info.movement_state
+                else:
+                    # Create new remote player entity
+                    remote_player = Entity(
+                        entity_id=f"player_{player_info.id}",
+                        entity_type=EntityType.PLAYER,
+                        x=player_info.position_x,
+                        y=player_info.position_y,
+                        name=player_info.name
+                    )
+                    
+                    # Set remote player visual properties
+                    remote_player.color = (0, 100, 255)  # Blue for other players
+                    remote_player.stats.level = player_info.level
+                    remote_player.stats.hp = player_info.current_hp
+                    remote_player.stats.max_hp = player_info.max_hp
+                    remote_player.stats.mp = player_info.current_mp
+                    remote_player.stats.max_mp = player_info.max_mp
+                    remote_player.stats.attack = player_info.attack
+                    remote_player.stats.defense = player_info.defense
+                    remote_player.facing_direction = player_info.facing_direction
+                    remote_player.movement_state = player_info.movement_state
+                    
+                    # Add to entity manager
+                    self.entity_manager.add_entity(remote_player)
+                    
+                    self.ui.add_chat_message(f"👤 Player {player_info.name} (Level {player_info.level}) joined the world")
+                    print(f"👤 Added remote player: {player_info.name} at ({player_info.position_x}, {player_info.position_y})")
+    
+    def _start_world_updates_stream(self):
+        """Start receiving real-time world updates from server"""
+        if not hasattr(self.game, 'auth_token') or not self.game.auth_token:
+            return
+            
+        try:
+            # Start world updates in a separate thread
+            threading.Thread(target=self._world_updates_worker, daemon=True).start()
+            print("🌍 Started world updates stream")
+        except Exception as e:
+            print(f"❌ Failed to start world updates: {e}")
+    
+    def _world_updates_worker(self):
+        """Worker thread for polling world updates"""
+        import time
+        
+        try:
+            print("🔄 Starting world updates polling...")
+            
+            while True:
+                try:
+                    # Poll for world state every 100ms (10 FPS)
+                    world_state = grpc_client.get_world_state(self.game.auth_token)
+                    
+                    if world_state and world_state.players:
+                        self._update_remote_players(world_state.players)
+                    
+                    # Wait 100ms before next poll
+                    time.sleep(0.1)
+                    
+                except Exception as e:
+                    print(f"❌ Error polling world state: {e}")
+                    time.sleep(1)  # Wait longer if there's an error
+                    
+        except Exception as e:
+            print(f"❌ World updates polling error: {e}")
+    
+    def _update_remote_players(self, players):
+        """Queue remote player updates for processing in main thread"""
+        # Put the update in the queue to be processed by main thread
+        self.world_updates_queue.put(('player_updates', players))
+    
+    def _process_world_updates_queue(self):
+        """Process world updates from the queue in main thread"""
+        try:
+            while not self.world_updates_queue.empty():
+                update_type, data = self.world_updates_queue.get_nowait()
+                
+                if update_type == 'player_updates':
+                    self._apply_player_updates(data)
+                    
+        except queue.Empty:
+            pass
+    
+    def _apply_player_updates(self, players):
+        """Apply player updates in main thread"""
+        if not self.local_player:
+            return
+            
+        for player_info in players:
+            if player_info.is_online and player_info.id != self.local_player.id:
+                entity_id = f"player_{player_info.id}"
+                existing_entity = self.entity_manager.get_entity(entity_id)
+                
+                if existing_entity:
+                    # Update existing remote player
+                    existing_entity.x = player_info.position_x
+                    existing_entity.y = player_info.position_y
+                    existing_entity.facing_direction = player_info.facing_direction
+                    existing_entity.movement_state = player_info.movement_state
+                    existing_entity.stats.hp = player_info.current_hp
+                    existing_entity.stats.level = player_info.level
+                    print(f"🔄 Updated remote player {player_info.name} position: ({player_info.position_x}, {player_info.position_y})")
+                else:
+                    # Create new remote player if not exists
+                    self._add_other_players([player_info])
+                    print(f"➕ Added new remote player {player_info.name}")
