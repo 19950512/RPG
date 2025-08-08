@@ -1,7 +1,7 @@
 import grpc
 import threading
-from .Protos import auth_pb2_grpc, auth_pb2
-from .Protos import player_pb2_grpc, player_pb2
+from .Generated import auth_pb2_grpc, auth_pb2
+from .Generated import player_pb2_grpc, player_pb2
 
 class GrpcClient:
     def __init__(self):
@@ -128,6 +128,56 @@ class GrpcClient:
             raise
         except Exception as e:
             print(f"Error in create_character: {e}")
+            raise
+    
+    def join_world(self, token, player_id=None):
+        """Join the game world with a character"""
+        try:
+            self._ensure_connection()
+            
+            # Create request
+            request = player_pb2.JoinWorldRequest()
+            if player_id:
+                request.player_id = player_id
+            
+            # Add authorization header
+            metadata = [('authorization', f'Bearer {token}')]
+            
+            # Make the gRPC call
+            response = self.player_stub.JoinWorld(request, metadata=metadata)
+            return response
+            
+        except grpc.RpcError as e:
+            print(f"gRPC error in join_world: {e.code()} - {e.details()}")
+            raise
+        except Exception as e:
+            print(f"Error in join_world: {e}")
+            raise
+    
+    def move_player(self, token, target_x, target_y, movement_type="walk"):
+        """Move player to a target position"""
+        try:
+            self._ensure_connection()
+            
+            # Create request
+            request = player_pb2.PlayerMoveRequest(
+                target_x=float(target_x),
+                target_y=float(target_y),
+                movement_type=movement_type
+            )
+            
+            # Add authorization header
+            metadata = [('authorization', f'Bearer {token}')]
+            
+            # Make the gRPC call
+            response = self.player_stub.MovePlayer(request, metadata=metadata)
+            return response
+            
+        except grpc.RpcError as e:
+            print(f"gRPC error in move_player: {e.code()} - {e.details()}")
+            raise
+        except Exception as e:
+            print(f"Error in move_player: {e}")
             raise
     
     def close(self):

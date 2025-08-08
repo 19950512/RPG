@@ -44,12 +44,14 @@ class CharacterSelectionScreen:
         if self.play_button.is_clicked(event) and self.selected_character_index is not None:
             selected_char = self.characters[self.selected_character_index]
             print(f"Entering game with {selected_char.name}...")
+            print(f"🔍 DEBUG: Auth token in char_select: {self.game.auth_token}")
             self.game.selected_character = {
                 'name': selected_char.name,
                 'level': selected_char.level,
                 'vocation': selected_char.vocation
             }
-            self.game.switch_state("in_game")
+            # Maintain the auth token when switching to game
+            self.game.switch_state("in_game", token=self.game.auth_token)
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             for i, char in enumerate(self.characters):

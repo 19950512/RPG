@@ -432,7 +432,7 @@ class UI:
             f"FPS: {1000 / max(dt, 1):.1f}",
             f"Player Pos: ({player.x:.1f}, {player.y:.1f})",
             f"Target: ({player.target_x:.1f}, {player.target_y:.1f})",
-            f"State: {player.movement_state.value}",
+            f"State: {player.movement_state}",
             f"Direction: {player.facing_direction}"
         ]
         

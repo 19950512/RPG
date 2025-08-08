@@ -7,14 +7,14 @@ using System.Collections.Concurrent;
 
 namespace GameServer.Services;
 
-public class PlayerService : GameServer.Protos.PlayerService.PlayerServiceBase
+public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBase
 {
     private readonly GameDbContext _dbContext;
-    private readonly ILogger<PlayerService> _logger;
+    private readonly ILogger<PlayerServiceImpl> _logger;
     private readonly IWorldService _worldService;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<WorldUpdateResponse>> _worldStreams = new();
 
-    public PlayerService(GameDbContext dbContext, ILogger<PlayerService> logger, IWorldService worldService)
+    public PlayerServiceImpl(GameDbContext dbContext, ILogger<PlayerServiceImpl> logger, IWorldService worldService)
     {
         _dbContext = dbContext;
         _logger = logger;
@@ -188,73 +188,108 @@ public class PlayerService : GameServer.Protos.PlayerService.PlayerServiceBase
     {
         try
         {
+            // Get account ID from context (added by JWT interceptor)
             var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
             if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
             {
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
             }
 
-            if (!Guid.TryParse(request.PlayerId, out var playerId))
+            _logger.LogInformation($"🌍 Player joining world for account: {accountId}");
+
+            // Se player_id foi fornecido, usar esse específico, senão pegar o primeiro da conta
+            Player? player;
+            if (!string.IsNullOrEmpty(request.PlayerId) && Guid.TryParse(request.PlayerId, out var playerId))
             {
-                return new JoinWorldResponse
+                player = await _dbContext.Players
+                    .FirstOrDefaultAsync(p => p.Id == playerId && p.AccountId == accountId);
+                
+                if (player == null)
                 {
-                    Success = false,
-                    Message = "Invalid player ID"
-                };
+                    return new JoinWorldResponse
+                    {
+                        Success = false,
+                        Message = "Player not found or doesn't belong to your account"
+                    };
+                }
+            }
+            else
+            {
+                // Pegar o primeiro personagem da conta
+                player = await _dbContext.Players
+                    .Where(p => p.AccountId == accountId)
+                    .FirstOrDefaultAsync();
+                
+                if (player == null)
+                {
+                    return new JoinWorldResponse
+                    {
+                        Success = false,
+                        Message = "No characters found. Create a character first."
+                    };
+                }
             }
 
-            // Verify player belongs to account
-            var player = await _dbContext.Players
-                .FirstOrDefaultAsync(p => p.Id == playerId && p.AccountId == accountId);
+            // Colocar o player online
+            player.IsOnline = true;
+            player.LastUpdate = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
 
-            if (player == null)
-            {
-                return new JoinWorldResponse
+            _logger.LogInformation($"🌍 Player {player.Name} ({player.Id}) is now ONLINE at position ({player.PositionX}, {player.PositionY})");
+
+            // Buscar outros players online (opcional - para mostrar quem está no mundo)
+            var otherPlayers = await _dbContext.Players
+                .Where(p => p.IsOnline && p.Id != player.Id)
+                .Take(10) // Limitar para não sobrecarregar
+                .Select(p => new PlayerInfo
                 {
-                    Success = false,
-                    Message = "Player not found"
-                };
-            }
+                    Id = p.Id.ToString(),
+                    Name = p.Name,
+                    Vocation = p.Vocation,
+                    Level = p.Level,
+                    PositionX = p.PositionX,
+                    PositionY = p.PositionY,
+                    CurrentHp = p.CurrentHp,
+                    MaxHp = p.MaxHp,
+                    IsOnline = p.IsOnline
+                })
+                .ToListAsync();
 
-            // Join world
-            var joined = await _worldService.JoinWorldAsync(playerId);
-            if (!joined)
-            {
-                return new JoinWorldResponse
-                {
-                    Success = false,
-                    Message = "Failed to join world"
-                };
-            }
-
-            // Get updated player info
-            var updatedPlayer = await _worldService.GetPlayerAsync(playerId);
-            var otherPlayers = await _worldService.GetOnlinePlayersAsync();
-
-            var response = new JoinWorldResponse
+            return new JoinWorldResponse
             {
                 Success = true,
-                Message = "Joined world successfully",
-                Player = ConvertToPlayerInfo(updatedPlayer!)
+                Message = $"Welcome to the world, {player.Name}! {otherPlayers.Count} other players online.",
+                Player = new PlayerInfo
+                {
+                    Id = player.Id.ToString(),
+                    Name = player.Name,
+                    Vocation = player.Vocation,
+                    Experience = player.Experience,
+                    Level = player.Level,
+                    PositionX = player.PositionX,
+                    PositionY = player.PositionY,
+                    CurrentHp = player.CurrentHp,
+                    MaxHp = player.MaxHp,
+                    CurrentMp = player.CurrentMp,
+                    MaxMp = player.MaxMp,
+                    Attack = player.Attack,
+                    Defense = player.Defense,
+                    Speed = player.Speed,
+                    MovementState = player.MovementState,
+                    FacingDirection = player.FacingDirection,
+                    IsOnline = player.IsOnline
+                },
+                OtherPlayers = { otherPlayers }
             };
-
-            // Add other online players
-            foreach (var otherPlayer in otherPlayers.Where(p => p.Id != playerId))
-            {
-                response.OtherPlayers.Add(ConvertToPlayerInfo(otherPlayer));
-            }
-
-            _logger.LogInformation("Player {PlayerName} joined world", player.Name);
-            return response;
-        }
-        catch (RpcException)
-        {
-            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error joining world");
-            throw new RpcException(new Status(StatusCode.Internal, "Internal server error"));
+            return new JoinWorldResponse
+            {
+                Success = false,
+                Message = "Failed to join world"
+            };
         }
     }
 
@@ -262,13 +297,16 @@ public class PlayerService : GameServer.Protos.PlayerService.PlayerServiceBase
     {
         try
         {
+            // Get account ID from context (added by JWT interceptor)
             var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
             if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
             {
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
             }
 
-            // Get current player (assuming one character per account for simplicity)
+            _logger.LogInformation($"🔥 Movement request for account {accountId}: ({request.TargetX}, {request.TargetY}) - {request.MovementType}");
+
+            // Buscar o player online
             var player = await _dbContext.Players
                 .FirstOrDefaultAsync(p => p.AccountId == accountId && p.IsOnline);
 
@@ -277,27 +315,71 @@ public class PlayerService : GameServer.Protos.PlayerService.PlayerServiceBase
                 return new PlayerMoveResponse
                 {
                     Success = false,
-                    Message = "Player not found or not online"
+                    Message = "Player not found or not online. Use JoinWorld first."
                 };
             }
 
-            // Move player
-            var moved = await _worldService.MovePlayerAsync(player.Id, request.TargetX, request.TargetY, request.MovementType);
+            // Validações de movimento
+            if (request.TargetX < 0 || request.TargetY < 0)
+            {
+                return new PlayerMoveResponse
+                {
+                    Success = false,
+                    Message = "Invalid target position: coordinates must be positive"
+                };
+            }
+
+            // Calcular distância para validar se o movimento é possível
+            var currentX = player.PositionX;
+            var currentY = player.PositionY;
+            var distance = Math.Sqrt(Math.Pow(request.TargetX - currentX, 2) + Math.Pow(request.TargetY - currentY, 2));
+            
+            // Velocidade baseada no tipo de movimento
+            var maxMoveDistance = request.MovementType?.ToLower() == "run" ? player.Speed * 2 : player.Speed;
+            
+            // Para este exemplo, vamos permitir qualquer movimento (sem validação de distância máxima)
+            // Em um jogo real, você validaria se o movimento é possível baseado na velocidade
+            _logger.LogInformation($"🔥 Moving {player.Name} from ({currentX}, {currentY}) to ({request.TargetX}, {request.TargetY}) - Distance: {distance:F2}");
+
+            // Determinar direção do movimento para atualizar FacingDirection
+            var deltaX = request.TargetX - currentX;
+            var deltaY = request.TargetY - currentY;
+            int facingDirection = 0; // 0=North, 1=East, 2=South, 3=West
+            
+            if (Math.Abs(deltaX) > Math.Abs(deltaY))
+            {
+                facingDirection = deltaX > 0 ? 1 : 3; // East : West
+            }
+            else
+            {
+                facingDirection = deltaY > 0 ? 2 : 0; // South : North
+            }
+
+            // Atualizar posição no banco de dados
+            player.PositionX = request.TargetX;
+            player.PositionY = request.TargetY;
+            player.FacingDirection = facingDirection;
+            player.MovementState = request.MovementType ?? "walk";
+            player.LastUpdate = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation($"🔥✅ Movement completed! {player.Name} is now at ({player.PositionX}, {player.PositionY}) facing {facingDirection}");
 
             return new PlayerMoveResponse
             {
-                Success = moved,
-                Message = moved ? "Player moved successfully" : "Failed to move player"
+                Success = true,
+                Message = $"Moved to ({request.TargetX}, {request.TargetY})"
             };
-        }
-        catch (RpcException)
-        {
-            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error moving player");
-            throw new RpcException(new Status(StatusCode.Internal, "Internal server error"));
+            return new PlayerMoveResponse
+            {
+                Success = false,
+                Message = "Failed to move player"
+            };
         }
     }
 

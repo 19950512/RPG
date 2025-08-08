@@ -62,7 +62,7 @@ if (app.Environment.IsDevelopment())
 
 // Map gRPC services
 app.MapGrpcService<GameServer.Services.AuthService>();
-app.MapGrpcService<GameServer.Services.PlayerService>();
+app.MapGrpcService<GameServer.Services.PlayerServiceImpl>();
 
 // Health check endpoint
 app.MapGet("/health", () => "Healthy");

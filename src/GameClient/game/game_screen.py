@@ -5,6 +5,7 @@ from typing import Optional
 from .world import GameMap
 from .entities import Entity, EntityManager, EntityType, MovementState
 from .ui import Camera, UI
+from ..grpc_client import grpc_client
 
 class GameScreen:
     def __init__(self, game):
@@ -86,8 +87,17 @@ class GameScreen:
         
         # Add welcome message
         self.ui.add_chat_message("Welcome to the RPG world!")
-        self.ui.add_chat_message("Use right-click to move, left-click to select")
+        self.ui.add_chat_message("Use ARROW KEYS to move, or right-click on map")
+        self.ui.add_chat_message("Hold SHIFT + arrows to run")
         self.ui.add_chat_message("Press F1 for debug, I for inventory, C for character")
+        
+        # Don't join world here - will be called when state becomes active
+    
+    def reset(self):
+        """Called when switching to this state"""
+        print("🔍 DEBUG: GameScreen reset() called")
+        # Join world when entering the game state
+        self._join_world_on_server()
     
     def handle_events(self, event):
         """Handle game events"""
@@ -105,6 +115,16 @@ class GameScreen:
                 # Quick attack nearest enemy
                 if self.local_player:
                     self._attack_nearest_enemy()
+            
+            # Movement with arrow keys
+            elif event.key == pygame.K_UP:
+                self._move_player_by_direction(0, -1)
+            elif event.key == pygame.K_DOWN:
+                self._move_player_by_direction(0, 1)
+            elif event.key == pygame.K_LEFT:
+                self._move_player_by_direction(-1, 0)
+            elif event.key == pygame.K_RIGHT:
+                self._move_player_by_direction(1, 0)
     
     def _process_action(self, action: str):
         """Process UI actions"""
@@ -118,8 +138,12 @@ class GameScreen:
                 try:
                     target_x = float(coords[0])
                     target_y = float(coords[1])
-                    self.local_player.set_target(target_x, target_y)
-                    self.ui.add_chat_message(f"Moving to ({target_x:.0f}, {target_y:.0f})")
+                    
+                    # Determine movement type based on current state
+                    movement_type = "run" if self.local_player.movement_state == MovementState.RUNNING else "walk"
+                    
+                    # Use unified movement processing
+                    self._process_movement(target_x, target_y, movement_type)
                 except ValueError:
                     pass
         
@@ -364,6 +388,109 @@ class GameScreen:
         # Draw UI
         self.ui.draw(screen, self.local_player, 16)  # Assuming 60 FPS
     
+    def _join_world_on_server(self):
+        """Join the world on the server"""
+        print("🔍 DEBUG: _join_world_on_server called")
+        try:
+            if hasattr(self.game, 'auth_token') and self.game.auth_token:
+                print(f"🔍 DEBUG: Auth token exists, calling join_world...")
+                response = grpc_client.join_world(self.game.auth_token)
+                print(f"🔍 DEBUG: join_world response: success={response.success}, message={response.message}")
+                if response.success:
+                    self.ui.add_chat_message(f"🌍 {response.message}")
+                    
+                    # Update local player position from server
+                    if response.player:
+                        self.local_player.x = response.player.position_x
+                        self.local_player.y = response.player.position_y
+                        self.local_player.name = response.player.name
+                        self.ui.add_chat_message(f"📍 Position: ({response.player.position_x:.0f}, {response.player.position_y:.0f})")
+                    
+                    # Show other online players
+                    if response.other_players:
+                        self.ui.add_chat_message(f"👥 {len(response.other_players)} other players online")
+                else:
+                    self.ui.add_chat_message(f"❌ Failed to join world: {response.message}")
+                    print(f"❌ DEBUG: Failed to join world: {response.message}")
+            else:
+                self.ui.add_chat_message("❌ No authentication token available")
+                print(f"❌ DEBUG: No auth token - hasattr: {hasattr(self.game, 'auth_token')}, token: {getattr(self.game, 'auth_token', None)}")
+        except Exception as e:
+            self.ui.add_chat_message(f"❌ Error joining world: {str(e)}")
+            print(f"❌ DEBUG: Exception in join_world: {e}")
+            print(f"Error joining world: {e}")
+    
+    def _move_player_by_direction(self, dx: int, dy: int):
+        """Move player by direction (for arrow key controls)"""
+        if not self.local_player:
+            return
+            
+        # Calculate movement distance (tile size)
+        move_distance = 32  # pixels per move
+        
+        # Calculate new position
+        new_x = self.local_player.x + (dx * move_distance)
+        new_y = self.local_player.y + (dy * move_distance)
+        
+        # Determine movement type (can add shift detection for running later)
+        keys = pygame.key.get_pressed()
+        movement_type = "run" if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] else "walk"
+        
+        # Process the movement
+        self._process_movement(new_x, new_y, movement_type)
+        
+        print(f"🎮 Arrow key movement: direction=({dx},{dy}), new_pos=({new_x:.0f},{new_y:.0f}), type={movement_type}")
+    
+    def _process_movement(self, target_x: float, target_y: float, movement_type: str = "walk"):
+        """Process movement to target position"""
+        if not self.local_player:
+            return
+            
+        # Calculate direction based on movement
+        current_x = self.local_player.x
+        current_y = self.local_player.y
+        dx = target_x - current_x
+        dy = target_y - current_y
+        
+        # Update local player position immediately for responsiveness
+        self.local_player.x = target_x
+        self.local_player.y = target_y
+        
+        # Update facing direction based on movement direction
+        if abs(dx) > abs(dy):
+            self.local_player.facing_direction = 2 if dx > 0 else 4  # Right or Left
+        else:
+            self.local_player.facing_direction = 3 if dy > 0 else 1  # Down or Up
+        
+        # Set movement state
+        self.local_player.movement_state = movement_type
+        
+        # Send movement to server
+        self._move_player_on_server(target_x, target_y, movement_type)
+        
+        # Update UI
+        self.ui.add_chat_message(f"Moving to ({target_x:.0f}, {target_y:.0f}) [{movement_type}]")
+    
+    def _move_player_on_server(self, target_x, target_y, movement_type):
+        """Send movement command to server"""
+        try:
+            if hasattr(self.game, 'auth_token') and self.game.auth_token:
+                response = grpc_client.move_player(
+                    self.game.auth_token, 
+                    target_x, 
+                    target_y, 
+                    movement_type
+                )
+                if response.success:
+                    self.ui.add_chat_message(f"🚀 Server: {response.message}")
+                else:
+                    self.ui.add_chat_message(f"❌ Move failed: {response.message}")
+            else:
+                self.ui.add_chat_message("❌ No authentication token for movement")
+        except Exception as e:
+            self.ui.add_chat_message(f"❌ Movement error: {str(e)}")
+            print(f"Error moving player: {e}")
+
     def reset(self):
         """Reset game state when entering"""
         # Could reload from save or reset to initial state

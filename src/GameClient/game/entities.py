@@ -197,12 +197,18 @@ class Entity:
         center_x = screen_x + self.width // 2
         center_y = screen_y + self.height // 2
         
+        # Direction offsets for facing direction (1=Up, 2=Right, 3=Down, 4=Left)
         direction_offsets = [
-            (0, 8),   # Down
-            (-8, 0),  # Left  
-            (0, -8),  # Up
-            (8, 0)    # Right
+            (0, 0),   # Index 0 - unused/default
+            (0, -8),  # Index 1 - Up
+            (8, 0),   # Index 2 - Right  
+            (0, 8),   # Index 3 - Down
+            (-8, 0)   # Index 4 - Left
         ]
+        
+        # Ensure facing_direction is within valid range
+        if self.facing_direction < 0 or self.facing_direction >= len(direction_offsets):
+            self.facing_direction = 3  # Default to Down
         
         offset_x, offset_y = direction_offsets[self.facing_direction]
         end_x = center_x + offset_x

@@ -24,16 +24,88 @@ message ListCharactersResponse {
   repeated PlayerInfo players = 1;
 }
 
+// Game world messages
+message JoinWorldRequest {
+  string player_id = 1;
+}
+
+message JoinWorldResponse {
+  bool success = 1;
+  string message = 2;
+  PlayerInfo player = 3;
+  repeated PlayerInfo other_players = 4;
+}
+
+message PlayerMoveRequest {
+  float target_x = 1;
+  float target_y = 2;
+  string movement_type = 3; // "walk" or "run"
+}
+
+message PlayerMoveResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message WorldUpdateRequest {
+  // Empty - stream request
+}
+
+message WorldUpdateResponse {
+  repeated PlayerInfo players = 1;
+  int64 timestamp = 2;
+}
+
+message PlayerActionRequest {
+  string action_type = 1; // "attack", "heal", "cast_spell"
+  string target_id = 2;
+  map<string, string> parameters = 3;
+}
+
+message PlayerActionResponse {
+  bool success = 1;
+  string message = 2;
+  repeated PlayerInfo affected_players = 3;
+}
+
 message PlayerInfo {
   string id = 1;
   string name = 2;
   string vocation = 3;
   int32 experience = 4;
   int32 level = 5;
+  
+  // Position
+  float position_x = 6;
+  float position_y = 7;
+  
+  // Health and Mana
+  int32 current_hp = 8;
+  int32 max_hp = 9;
+  int32 current_mp = 10;
+  int32 max_mp = 11;
+  
+  // Combat stats
+  int32 attack = 12;
+  int32 defense = 13;
+  float speed = 14;
+  
+  // State
+  string movement_state = 15;
+  int32 facing_direction = 16;
+  bool is_online = 17;
 }
 
 // Player service (requires JWT authentication)
 service PlayerService {
   rpc CreateCharacter(CreateCharacterRequest) returns (CreateCharacterResponse);
   rpc ListCharacters(ListCharactersRequest) returns (ListCharactersResponse);
+  
+  // Game world operations
+  rpc JoinWorld(JoinWorldRequest) returns (JoinWorldResponse);
+  rpc MovePlayer(PlayerMoveRequest) returns (PlayerMoveResponse);
+  rpc PerformAction(PlayerActionRequest) returns (PlayerActionResponse);
+  
+  // Real-time updates
+  rpc GetWorldUpdates(WorldUpdateRequest) returns (stream WorldUpdateResponse);
 }
