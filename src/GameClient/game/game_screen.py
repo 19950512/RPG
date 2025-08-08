@@ -38,6 +38,9 @@ class GameScreen:
         # Flag to track if we've joined the world
         self.world_joined = False
         
+        # Thread control for world updates
+        self.world_updates_running = False
+        
         # Thread-safe queue for world updates
         self.world_updates_queue = queue.Queue()
         
@@ -108,8 +111,76 @@ class GameScreen:
     def reset(self):
         """Called when switching to this state"""
         print("🔍 DEBUG: GameScreen reset() called")
+        
+        # Reset world state
+        self.world_joined = False
+        self.world_updates_running = False
+        
+        # Clear any existing remote players (keep local player and NPCs/monsters)
+        self._cleanup_remote_players()
+        
+        # Reset local player to selected character data
+        self._reset_local_player()
+        
         # Join world when entering the game state
         self._join_world_on_server()
+    
+    def _cleanup_world_state(self):
+        """Clean up world state when leaving"""
+        print("🧹 Cleaning up world state...")
+        
+        # Reset flags
+        self.world_joined = False
+        self.world_updates_running = False
+        
+        # Clear world updates queue
+        while not self.world_updates_queue.empty():
+            try:
+                self.world_updates_queue.get_nowait()
+            except:
+                break
+        
+        # Remove all remote players (keep local player, NPCs, monsters)
+        self._cleanup_remote_players()
+        
+        print("✅ World state cleaned up")
+    
+    def _cleanup_remote_players(self):
+        """Remove all remote players from entity manager"""
+        remote_player_ids = []
+        
+        for entity_id, entity in self.entity_manager.entities.items():
+            # Remove entities that are remote players (other players, not local)
+            if (entity.type == EntityType.PLAYER and 
+                entity_id != self.local_player.id and 
+                entity_id.startswith("player_")):
+                remote_player_ids.append(entity_id)
+        
+        for entity_id in remote_player_ids:
+            self.entity_manager.remove_entity(entity_id)
+            print(f"🗑️ Removed remote player: {entity_id}")
+    
+    def _reset_local_player(self):
+        """Reset local player to initial state based on selected character"""
+        if not self.local_player:
+            return
+            
+        # Reset to spawn point
+        spawn_x, spawn_y = self.game_map.spawn_points[0]
+        world_x, world_y = self.game_map.tile_to_world(spawn_x, spawn_y)
+        
+        self.local_player.x = world_x
+        self.local_player.y = world_y
+        self.local_player.target_x = world_x
+        self.local_player.target_y = world_y
+        self.local_player.movement_state = MovementState.IDLE
+        self.local_player.facing_direction = 0
+        
+        # Update name if character is selected
+        if hasattr(self.game, 'selected_character') and self.game.selected_character:
+            self.local_player.name = self.game.selected_character.get('name', 'Player')
+        
+        print(f"🔄 Reset local player: {self.local_player.name} at ({world_x}, {world_y})")
     
     def handle_events(self, event):
         """Handle game events"""
@@ -122,6 +193,10 @@ class GameScreen:
         # Handle game-specific events
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                # Stop world updates polling
+                self.world_updates_running = False
+                print("🛑 Stopping world updates...")
+                
                 # Leave world before going back to character selection
                 if hasattr(self.game, 'auth_token') and self.game.auth_token:
                     try:
@@ -135,6 +210,9 @@ class GameScreen:
                     except Exception as e:
                         self.ui.add_chat_message(f"❌ Error leaving world: {str(e)}")
                         print(f"❌ Error leaving world: {e}")
+                
+                # Clear world state before leaving
+                self._cleanup_world_state()
                 
                 self.game.switch_state("char_select")
             elif event.key == pygame.K_SPACE:
@@ -638,8 +716,14 @@ class GameScreen:
     
     def _add_other_players(self, other_players):
         """Add other players as entities to the game world"""
+        if not self.local_player:
+            return
+            
         for player_info in other_players:
-            if player_info.is_online and player_info.id != self.local_player.id:
+            # Skip if this is the local player (compare by name since IDs are different)
+            if (player_info.is_online and 
+                player_info.name != self.local_player.name):
+                
                 # Check if player already exists
                 existing_entity = self.entity_manager.get_entity(f"player_{player_info.id}")
                 
@@ -653,6 +737,7 @@ class GameScreen:
                     existing_entity.stats.max_hp = player_info.max_hp
                     existing_entity.facing_direction = player_info.facing_direction
                     existing_entity.movement_state = player_info.movement_state
+                    print(f"🔄 Updated remote player: {player_info.name}")
                 else:
                     # Create new remote player entity
                     remote_player = Entity(
@@ -680,6 +765,8 @@ class GameScreen:
                     
                     self.ui.add_chat_message(f"👤 Player {player_info.name} (Level {player_info.level}) joined the world")
                     print(f"👤 Added remote player: {player_info.name} at ({player_info.position_x}, {player_info.position_y})")
+            else:
+                print(f"🚫 Skipping local player: {player_info.name} (local: {self.local_player.name})")
     
     def _start_world_updates_stream(self):
         """Start receiving real-time world updates from server"""
@@ -687,6 +774,9 @@ class GameScreen:
             return
             
         try:
+            # Set flag to start thread
+            self.world_updates_running = True
+            
             # Start world updates in a separate thread
             threading.Thread(target=self._world_updates_worker, daemon=True).start()
             print("🌍 Started world updates stream")
@@ -700,21 +790,32 @@ class GameScreen:
         try:
             print("🔄 Starting world updates polling...")
             
-            while True:
+            while self.world_updates_running:
                 try:
+                    # Check if we should still be running
+                    if not self.world_updates_running:
+                        break
+                    
                     # Poll for world state every 100ms (10 FPS)
                     world_state = grpc_client.get_world_state(self.game.auth_token)
                     
                     if world_state and world_state.players:
+                        print(f"🌍 Received world state with {len(world_state.players)} players")
                         self._update_remote_players(world_state.players)
+                    else:
+                        print(f"🌍 Received empty world state")
+                        # Clear all remote players if no players in world state
+                        self._clear_all_remote_players()
                     
                     # Wait 100ms before next poll
                     time.sleep(0.1)
                     
                 except Exception as e:
-                    print(f"❌ Error polling world state: {e}")
+                    if self.world_updates_running:  # Only log if we're supposed to be running
+                        print(f"❌ Error polling world state: {e}")
                     time.sleep(1)  # Wait longer if there's an error
                     
+            print("🔄 World updates polling stopped")
         except Exception as e:
             print(f"❌ World updates polling error: {e}")
     
@@ -739,10 +840,27 @@ class GameScreen:
         """Apply player updates in main thread"""
         if not self.local_player:
             return
+        
+        # Get current remote player entities for cleanup
+        current_remote_players = set()
+        for entity_id in list(self.entity_manager.entities.keys()):
+            if entity_id.startswith("player_") and entity_id != self.local_player.id:
+                current_remote_players.add(entity_id)
+        
+        # Track which players are still online
+        still_online = set()
             
         for player_info in players:
-            if player_info.is_online and player_info.id != self.local_player.id:
-                entity_id = f"player_{player_info.id}"
+            entity_id = f"player_{player_info.id}"
+            
+            # Skip if this is the local player (compare by name since IDs are different)
+            if player_info.name == self.local_player.name:
+                continue
+            
+            if player_info.is_online:
+                # Player is online - add to still_online set
+                still_online.add(entity_id)
+                
                 existing_entity = self.entity_manager.get_entity(entity_id)
                 
                 if existing_entity:
@@ -758,3 +876,33 @@ class GameScreen:
                     # Create new remote player if not exists
                     self._add_other_players([player_info])
                     print(f"➕ Added new remote player {player_info.name}")
+            else:
+                # Player is offline - should be removed
+                if entity_id in current_remote_players:
+                    self.entity_manager.remove_entity(entity_id)
+                    print(f"🚪 Removed offline player {player_info.name}")
+        
+        # Remove any players that are no longer in the server's player list
+        for entity_id in current_remote_players:
+            if entity_id not in still_online:
+                entity = self.entity_manager.get_entity(entity_id)
+                if entity:
+                    self.entity_manager.remove_entity(entity_id)
+                    print(f"🗑️ Removed disconnected player {entity.name} ({entity_id})")
+    
+    def _clear_all_remote_players(self):
+        """Clear all remote players from the world"""
+        remote_player_ids = []
+        
+        for entity_id, entity in self.entity_manager.entities.items():
+            # Remove entities that are remote players (other players, not local)
+            if (entity.type == EntityType.PLAYER and 
+                entity_id != self.local_player.id and 
+                entity_id.startswith("player_")):
+                remote_player_ids.append(entity_id)
+        
+        for entity_id in remote_player_ids:
+            entity = self.entity_manager.get_entity(entity_id)
+            if entity:
+                self.entity_manager.remove_entity(entity_id)
+                print(f"🧹 Cleared remote player: {entity.name}")
