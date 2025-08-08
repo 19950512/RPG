@@ -1,4 +1,6 @@
 #!/bin/bash
+# Script de teste de conexão e sincronização com o servidor
+# Este é um exemplo - copie para test_connection.sh e ajuste conforme seu ambiente
 
 echo "🔗 Testando conexão e sincronização com o servidor via gRPC..."
 echo ""
@@ -9,7 +11,7 @@ echo "      - HTTPS na porta 5001"
 echo "      - Container: gameserver"
 echo "   "
 echo "   🛠️  DESENVOLVIMENTO (docker-compose.dev.yml):"
-echo "      - Porta gRPC: 5008 (agora mapeada)"
+echo "      - Porta gRPC: 5008"
 echo "      - HTTP nas portas 5001 e 5002"
 echo "      - Container: gameserver-dev"
 echo "      - Hot reload habilitado"
@@ -32,11 +34,12 @@ echo "❌ Não foi possível conectar ao banco"
 
 echo ""
 echo "🎯 Para testar a sincronização:"
-echo "   1. Rodar o cliente do jogo: cd src && python -m GameClient.main"
-echo "   2. Fazer login e entrar no mundo" 
-echo "   3. Mover o personagem ou usar a tecla X para ganhar XP"
-echo "   4. Fechar o jogo (janela ou Ctrl+C) para testar o logout automático"
-echo "   5. As informações devem ser salvas automaticamente a cada 5 segundos"
+echo "   1. Configurar ambiente: source dev.env && source .venv/bin/activate"
+echo "   2. Rodar o cliente: cd src && python -m GameClient.main"
+echo "   3. Fazer login e entrar no mundo" 
+echo "   4. Mover o personagem ou usar a tecla X para ganhar XP"
+echo "   5. Fechar o jogo (janela ou Ctrl+C) para testar o logout automático"
+echo "   6. As informações devem ser salvas automaticamente a cada 5 segundos"
 echo ""
 echo "🔧 Para alternar entre ambientes:"
 echo "   - DEV: docker-compose -f docker-compose.dev.yml up -d"

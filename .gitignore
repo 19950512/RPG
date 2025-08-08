@@ -54,6 +54,18 @@ __pycache__
 .env
 .env.local
 .env.production
+dev.env
+prod.env
+
+# Test scripts (environment dependent)
+test_connection.sh
+test_*.py
+
+# Protobuf generated files (project root - duplicates)
+auth_pb2.py
+auth_pb2_grpc.py
+player_pb2.py
+player_pb2_grpc.py
 
 # Database
 *.db

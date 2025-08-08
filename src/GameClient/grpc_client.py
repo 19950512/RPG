@@ -1,11 +1,17 @@
 import grpc
 import threading
+import os
 from .Generated import auth_pb2_grpc, auth_pb2
 from .Generated import player_pb2_grpc, player_pb2
 
 class GrpcClient:
-    def __init__(self):
-        self.server_address = 'localhost:5008'
+    def __init__(self, server_address=None):
+        # Use environment variable or default port
+        if server_address is None:
+            port = os.getenv('GRPC_PORT', '5008')
+            server_address = f'localhost:{port}'
+        
+        self.server_address = server_address
         self.channel = None
         self.auth_stub = None
         self.player_stub = None
