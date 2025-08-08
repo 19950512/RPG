@@ -122,6 +122,20 @@ class GameScreen:
         # Handle game-specific events
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                # Leave world before going back to character selection
+                if hasattr(self.game, 'auth_token') and self.game.auth_token:
+                    try:
+                        response = grpc_client.leave_world(self.game.auth_token)
+                        if response.success:
+                            self.ui.add_chat_message(f"🚪 {response.message}")
+                            print(f"🚪 Left world: {response.message}")
+                        else:
+                            self.ui.add_chat_message(f"⚠️ Failed to leave: {response.message}")
+                            print(f"⚠️ Failed to leave world: {response.message}")
+                    except Exception as e:
+                        self.ui.add_chat_message(f"❌ Error leaving world: {str(e)}")
+                        print(f"❌ Error leaving world: {e}")
+                
                 self.game.switch_state("char_select")
             elif event.key == pygame.K_SPACE:
                 # Quick attack nearest enemy

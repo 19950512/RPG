@@ -42,6 +42,18 @@ class Game:
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                # Call leave_world before quitting if player is in game
+                if self.current_state == "in_game" and hasattr(self, 'auth_token') and self.auth_token:
+                    try:
+                        from GameClient.grpc_client import grpc_client
+                        response = grpc_client.leave_world(self.auth_token)
+                        if response.success:
+                            print(f"🚪 Successfully left world: {response.message}")
+                        else:
+                            print(f"⚠️ Failed to leave world: {response.message}")
+                    except Exception as e:
+                        print(f"❌ Error leaving world: {e}")
+                
                 self.running = False
             self.states[self.current_state].handle_events(event)
 

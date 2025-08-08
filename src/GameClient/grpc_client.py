@@ -154,6 +154,28 @@ class GrpcClient:
             print(f"Error in join_world: {e}")
             raise
     
+    def leave_world(self, token):
+        """Leave the game world"""
+        try:
+            self._ensure_connection()
+            
+            # Create request
+            request = player_pb2.LeaveWorldRequest()
+            
+            # Add authorization header
+            metadata = [('authorization', f'Bearer {token}')]
+            
+            # Make the gRPC call
+            response = self.player_stub.LeaveWorld(request, metadata=metadata)
+            return response
+            
+        except grpc.RpcError as e:
+            print(f"gRPC error in leave_world: {e.code()} - {e.details()}")
+            raise
+        except Exception as e:
+            print(f"Error in leave_world: {e}")
+            raise
+    
     def move_player(self, token, target_x, target_y, movement_type="walk"):
         """Move player to a target position"""
         try:

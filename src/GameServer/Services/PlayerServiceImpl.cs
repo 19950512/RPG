@@ -296,6 +296,59 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
         }
     }
 
+    public override async Task<LeaveWorldResponse> LeaveWorld(LeaveWorldRequest request, ServerCallContext context)
+    {
+        try
+        {
+            // Get account ID from context (added by JWT interceptor)
+            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
+            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
+            {
+                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
+            }
+
+            _logger.LogInformation($"🚪 Player leaving world for account: {accountId}");
+
+            // Buscar o player online
+            var player = await _dbContext.Players
+                .FirstOrDefaultAsync(p => p.AccountId == accountId && p.IsOnline);
+
+            if (player == null)
+            {
+                return new LeaveWorldResponse
+                {
+                    Success = false,
+                    Message = "Player not found or already offline"
+                };
+            }
+
+            // Colocar o player offline
+            player.IsOnline = false;
+            player.LastUpdate = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            // Remove player from WorldService cache
+            await _worldService.LeaveWorldAsync(player.Id);
+
+            _logger.LogInformation($"🚪✅ Player {player.Name} ({player.Id}) is now OFFLINE");
+
+            return new LeaveWorldResponse
+            {
+                Success = true,
+                Message = $"Goodbye, {player.Name}! You have left the world safely."
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error leaving world");
+            return new LeaveWorldResponse
+            {
+                Success = false,
+                Message = "Failed to leave world"
+            };
+        }
+    }
+
     public override async Task<PlayerMoveResponse> MovePlayer(PlayerMoveRequest request, ServerCallContext context)
     {
         try
