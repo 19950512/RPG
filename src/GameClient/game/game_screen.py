@@ -215,6 +215,11 @@ class GameScreen:
                 # Clear world state before leaving
                 self._cleanup_world_state()
                 
+                # Clear selected character state to prevent wrong character selection
+                if hasattr(self.game, 'selected_character'):
+                    self.game.selected_character = None
+                    print("🧹 Cleared selected character state")
+                
                 self.game.switch_state("char_select")
             elif event.key == pygame.K_F1:
                 # Quick attack nearest enemy
@@ -757,7 +762,16 @@ class GameScreen:
         try:
             if hasattr(self.game, 'auth_token') and self.game.auth_token:
                 print(f"🔍 DEBUG: Auth token exists, calling join_world...")
-                response = grpc_client.join_world(self.game.auth_token)
+                
+                # Get the player ID from selected character
+                player_id = None
+                if hasattr(self.game, 'selected_character') and self.game.selected_character:
+                    player_id = self.game.selected_character.get('id')
+                    print(f"🔍 DEBUG: Using player_id: {player_id}")
+                else:
+                    print("🔍 DEBUG: No selected character found, using default")
+                
+                response = grpc_client.join_world(self.game.auth_token, player_id=player_id)
                 print(f"🔍 DEBUG: join_world response: success={response.success}, message={response.message}")
                 if response.success:
                     self.ui.add_chat_message(f"🌍 {response.message}")

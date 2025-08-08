@@ -16,13 +16,18 @@ class CharacterSelectionScreen:
         self.logout_button = Button(50, 500, 200, 50, 'Logout')
 
     def fetch_characters(self):
+        """Fetch characters from server and reset selection state"""
         self.error_message = ""
         self.characters = []
+        self.selected_character_index = None  # Ensure no character is selected
+        
         try:
             response = grpc_client.get_players(self.game.auth_token)
             if response.players:
                 self.characters = list(response.players)
                 print(f"Loaded {len(self.characters)} characters")
+                for i, char in enumerate(self.characters):
+                    print(f"  {i}: {char.name} (ID: {char.id}) - Level {char.level} {char.vocation}")
             else:
                 self.error_message = "No characters found. Create one!"
                 print("No characters found for this account")
@@ -45,7 +50,10 @@ class CharacterSelectionScreen:
             selected_char = self.characters[self.selected_character_index]
             print(f"Entering game with {selected_char.name}...")
             print(f"🔍 DEBUG: Auth token in char_select: {self.game.auth_token}")
+            print(f"🔍 DEBUG: Selected character ID: {selected_char.id}")
+            print(f"🔍 DEBUG: Selected character index: {self.selected_character_index}")
             self.game.selected_character = {
+                'id': selected_char.id,  # CRUCIAL: Include the player ID
                 'name': selected_char.name,
                 'level': selected_char.level,
                 'vocation': selected_char.vocation
@@ -58,6 +66,7 @@ class CharacterSelectionScreen:
                 char_rect = pygame.Rect(100, 150 + i * 60, 600, 50)
                 if char_rect.collidepoint(event.pos):
                     self.selected_character_index = i
+                    print(f"🔍 DEBUG: Selected character index {i}: {char.name} (ID: {char.id})")
 
     def update(self):
         pass # Nothing to update continuously for now
@@ -89,5 +98,17 @@ class CharacterSelectionScreen:
         self.logout_button.draw(screen)
 
     def reset(self):
+        """Reset the character selection state"""
+        print("🔄 Resetting character selection state...")
+        # Clear all selection state first
         self.selected_character_index = None
+        self.error_message = ""
+        self.characters = []
+        
+        # Clear any selected character from game state
+        if hasattr(self.game, 'selected_character'):
+            self.game.selected_character = None
+            
+        # Then fetch fresh character data
         self.fetch_characters()
+        print(f"✅ Character selection reset complete. Found {len(self.characters)} characters.")
