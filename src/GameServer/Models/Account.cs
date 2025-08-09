@@ -22,4 +22,5 @@ public class Account
     public virtual ICollection<Player> Players { get; set; } = new List<Player>();
     public virtual ICollection<AuthToken> AuthTokens { get; set; } = new List<AuthToken>();
     public virtual ICollection<ActiveToken> ActiveTokens { get; set; } = new List<ActiveToken>();
+    public virtual ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }

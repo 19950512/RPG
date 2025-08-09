@@ -43,7 +43,13 @@ class CharacterSelectionScreen:
             self.game.switch_state("create_char")
 
         if self.logout_button.is_clicked(event):
+            try:
+                grpc_client.logout()
+            except Exception as ex:
+                print(f"Logout error: {ex}")
             self.game.auth_token = None
+            if hasattr(self.game, 'selected_character'):
+                self.game.selected_character = None
             self.game.switch_state("login")
 
         if self.play_button.is_clicked(event) and self.selected_character_index is not None:

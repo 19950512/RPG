@@ -35,8 +35,8 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<IWorldManager, WorldManager>();
 builder.Services.AddSingleton<IWorldEntityManager, WorldEntityManager>();
-builder.Services.AddHostedService<WorldEntityWarmupHostedService>();
 builder.Services.AddScoped<JwtAuthInterceptor>();
+builder.Services.AddHostedService<TokenCleanupHostedService>();
 
 // Add gRPC services
 builder.Services.AddGrpc(options =>

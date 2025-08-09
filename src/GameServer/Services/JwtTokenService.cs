@@ -5,6 +5,7 @@ using GameServer.Data;
 using GameServer.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Cryptography;
 
 namespace GameServer.Services;
 
@@ -14,6 +15,9 @@ public interface IJwtTokenService
     ClaimsPrincipal? ValidateToken(string token);
     Task<bool> IsTokenActiveAsync(string token);
     Task DeactivateTokenAsync(string token);
+    Task<(string refreshToken, DateTime expires)> CreateRefreshTokenAsync(Account account, string? createdByIp = null);
+    Task<RefreshToken?> GetValidRefreshTokenAsync(string refreshTokenPlain);
+    Task InvalidateRefreshTokenAsync(string refreshTokenPlain, string? revokedByIp = null, string? replaceWithHash = null);
 }
 
 public class JwtTokenService : IJwtTokenService
@@ -93,6 +97,57 @@ public class JwtTokenService : IJwtTokenService
         if (activeToken != null)
         {
             _context.ActiveTokens.Remove(activeToken);
+            await _context.SaveChangesAsync();
+        }
+    }
+
+    private static string GenerateSecureToken(int size = 64)
+    {
+        var bytes = new byte[size];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static string HashToken(string token)
+    {
+        using var sha256 = SHA256.Create();
+        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(token));
+        return Convert.ToBase64String(hash);
+    }
+
+    public async Task<(string refreshToken, DateTime expires)> CreateRefreshTokenAsync(Account account, string? createdByIp = null)
+    {
+        var plain = GenerateSecureToken();
+        var hash = HashToken(plain);
+        var expires = DateTime.UtcNow.AddDays(_configuration.GetValue<int>("Jwt:RefreshTokenDays", 7));
+        var entity = new RefreshToken
+        {
+            AccountId = account.Id,
+            TokenHash = hash,
+            ExpiresAt = expires,
+            CreatedAt = DateTime.UtcNow,
+            CreatedByIp = createdByIp ?? string.Empty
+        };
+        _context.RefreshTokens.Add(entity);
+        await _context.SaveChangesAsync();
+        return (plain, expires);
+    }
+
+    public async Task<RefreshToken?> GetValidRefreshTokenAsync(string refreshTokenPlain)
+    {
+        var hash = HashToken(refreshTokenPlain);
+        return await _context.RefreshTokens.FirstOrDefaultAsync(r => r.TokenHash == hash && r.RevokedAt == null && r.ExpiresAt > DateTime.UtcNow);
+    }
+
+    public async Task InvalidateRefreshTokenAsync(string refreshTokenPlain, string? revokedByIp = null, string? replaceWithHash = null)
+    {
+        var hash = HashToken(refreshTokenPlain);
+        var token = await _context.RefreshTokens.FirstOrDefaultAsync(r => r.TokenHash == hash);
+        if (token != null && token.RevokedAt == null)
+        {
+            token.RevokedAt = DateTime.UtcNow;
+            token.RevokedByIp = revokedByIp;
+            token.ReplacedByTokenHash = replaceWithHash;
             await _context.SaveChangesAsync();
         }
     }

@@ -16,9 +16,7 @@ public interface IWorldEntityManager
     Task<bool> RemoveEntityAsync(Guid entityId);
     Task BroadcastEntityUpdateAsync(WorldEntity entity);
     Task ScheduleRespawnAsync(WorldEntity entity);
-    Task InitializeDefaultEntitiesAsync();
-    // Novo: forçar recarregamento quando dicionário estiver vazio
-    Task ForceReloadAsync();
+    Task InitializeDefaultEntitiesAsync(); // (opcional, manter caso queira usar em testes)
     
     // Streaming updates
     Channel<List<EntityUpdate>> SubscribeToUpdates();
@@ -290,28 +288,6 @@ public class WorldEntityManager : IWorldEntityManager, IDisposable
         }
         
         _logger.LogInformation("Initialized {Count} default world entities", entities.Count);
-    }
-
-    public Task ForceReloadAsync()
-    {
-        if (_entities.IsEmpty)
-        {
-            _logger.LogWarning("World entity cache vazio. Forçando recarregamento do banco...");
-            return LoadAndMaybeSeedAsync();
-        }
-        return Task.CompletedTask;
-    }
-    
-    private async Task LoadAndMaybeSeedAsync()
-    {
-        await LoadEntitiesFromDatabase(null);
-        if (_entities.IsEmpty)
-        {
-            _logger.LogWarning("Após reload ainda vazio. Inicializando entidades padrão...");
-            await InitializeDefaultEntitiesAsync();
-            await LoadEntitiesFromDatabase(null);
-            _logger.LogInformation("Após seed: cache total={Count}", _entities.Count);
-        }
     }
 
     public Channel<List<EntityUpdate>> SubscribeToUpdates()

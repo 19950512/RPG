@@ -44,40 +44,23 @@ public class WorldServiceImpl : WorldService.WorldServiceBase
     {
         try
         {
-            // Auth (ensures interceptor set header)
-            _ = GetAccountId(context);
-
-            // Ensure cache loaded (only if empty)
-            await _worldEntityManager.ForceReloadAsync();
-
+            var accountId = GetAccountId(context);
             var entities = await _worldEntityManager.GetAllEntitiesAsync();
-            var response = new GetWorldEntitiesResponse
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            };
-
+            var response = new GetWorldEntitiesResponse { Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
             foreach (var entity in entities)
             {
-                if (!entity.IsAlive && entity.EntityType == "monster") continue; // filter dead monsters
+                if (!entity.IsAlive && entity.EntityType == "monster") continue;
                 var type = (entity.EntityType ?? string.Empty).Trim().ToLowerInvariant();
                 var worldEntity = MapToProtoWorldEntity(entity);
                 switch (type)
                 {
-                    case "npc":
-                        response.Npcs.Add(worldEntity); break;
-                    case "monster":
-                        response.Monsters.Add(worldEntity); break;
-                    case "item":
-                        response.Items.Add(worldEntity); break;
-                    default:
-                        _logger.LogWarning("Entity {Id} unexpected type='{Type}'", entity.Id, entity.EntityType);
-                        break;
+                    case "npc": response.Npcs.Add(worldEntity); break;
+                    case "monster": response.Monsters.Add(worldEntity); break;
+                    case "item": response.Items.Add(worldEntity); break;
+                    default: _logger.LogWarning("Entity {Id} unexpected type='{Type}'", entity.Id, entity.EntityType); break;
                 }
             }
-
-            _logger.LogDebug("Returned {NpcCount} NPCs, {MonsterCount} monsters, {ItemCount} items",
-                response.Npcs.Count, response.Monsters.Count, response.Items.Count);
-
+            _logger.LogDebug("Returned {NpcCount} NPCs, {MonsterCount} monsters, {ItemCount} items (acct={Account})", response.Npcs.Count, response.Monsters.Count, response.Items.Count, accountId);
             return response;
         }
         catch (Exception ex) when (ex is not RpcException)

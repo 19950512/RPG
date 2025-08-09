@@ -93,15 +93,9 @@ class GameScreen:
     def _load_world_entities(self):
         """Load NPCs, monsters, and items from server"""
         try:
-            # Always try to load world entities, even without auth token (for testing)
             print("🌍 Loading world entities from server...")
             
-            # Try with auth token first, then without for compatibility
-            auth_token = None
-            if hasattr(self.game, 'auth_token') and self.game.auth_token:
-                auth_token = self.game.auth_token
-                
-            response = world_client.get_world_entities(auth_token)
+            response = world_client.get_world_entities()
             
             # Clear existing NPCs and monsters (keep only players)
             self._cleanup_world_entities()
@@ -112,7 +106,7 @@ class GameScreen:
                 self.entity_manager.add_entity(npc)
                 print(f"🟢 Added NPC: {npc.name} at ({npc.x:.0f}, {npc.y:.0f})")
             
-            # Add monsters from server  
+            # Add monsters from response  
             for monster_data in response.monsters:
                 monster = self._create_entity_from_server_data(monster_data)
                 self.entity_manager.add_entity(monster)
@@ -423,7 +417,6 @@ class GameScreen:
                 
                 # Send attack request to server
                 response = world_client.interact_with_entity(
-                    token=self.game.auth_token,
                     entity_id=target.id,
                     interaction_type="attack",
                     parameters={
@@ -1254,7 +1247,7 @@ class GameScreen:
             print("🌍 Starting world entity updates stream...")
             
             # Get the stream from server
-            stream = world_client.get_world_updates_stream(self.game.auth_token)
+            stream = world_client.get_world_updates_stream()
             
             for update in stream:
                 # Check if we should still be running

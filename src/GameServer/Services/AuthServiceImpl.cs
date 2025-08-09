@@ -143,6 +143,9 @@ namespace GameServer.Services
                 var jwtToken = _jwtTokenService.GenerateToken(account);
                 var token = await _dbContext.ActiveTokens.FirstAsync(t => t.Token == jwtToken);
 
+                // Create refresh token
+                var (refreshToken, refreshExpires) = await _jwtTokenService.CreateRefreshTokenAsync(account, context.Peer);
+
                 _logger.LogInformation("Login successful for email: {Email}", request.Email);
 
                 return new LoginResponse
@@ -150,7 +153,9 @@ namespace GameServer.Services
                     Success = true,
                     Message = "Login successful",
                     JwtToken = jwtToken,
-                    ExpiresAt = ((DateTimeOffset)token.Expires).ToUnixTimeSeconds()
+                    ExpiresAt = ((DateTimeOffset)token.Expires).ToUnixTimeSeconds(),
+                    RefreshToken = refreshToken,
+                    RefreshExpiresAt = ((DateTimeOffset)refreshExpires).ToUnixTimeSeconds()
                 };
             }
             catch (Exception ex)
@@ -161,6 +166,84 @@ namespace GameServer.Services
                     Success = false,
                     Message = "Internal server error"
                 };
+            }
+        }
+
+        public override async Task<RefreshTokenResponse> RefreshToken(RefreshTokenRequest request, ServerCallContext context)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.RefreshToken))
+                {
+                    return new RefreshTokenResponse { Success = false, Message = "Refresh token required" };
+                }
+
+                var existing = await _jwtTokenService.GetValidRefreshTokenAsync(request.RefreshToken);
+                if (existing == null)
+                {
+                    return new RefreshTokenResponse { Success = false, Message = "Invalid or expired refresh token" };
+                }
+
+                var account = await _dbContext.Accounts.FirstAsync(a => a.Id == existing.AccountId);
+
+                // Gera novo JWT
+                var newJwt = _jwtTokenService.GenerateToken(account);
+                var active = await _dbContext.ActiveTokens.FirstAsync(t => t.Token == newJwt);
+
+                // Rotaciona refresh token
+                var (newRefreshPlain, newRefreshExpires) = await _jwtTokenService.CreateRefreshTokenAsync(account, context.Peer);
+
+                // Invalida o antigo (link para novo hash)
+                await _jwtTokenService.InvalidateRefreshTokenAsync(request.RefreshToken, context.Peer);
+
+                return new RefreshTokenResponse
+                {
+                    Success = true,
+                    Message = "Token refreshed",
+                    JwtToken = newJwt,
+                    ExpiresAt = ((DateTimeOffset)active.Expires).ToUnixTimeSeconds(),
+                    RefreshToken = newRefreshPlain,
+                    RefreshExpiresAt = ((DateTimeOffset)newRefreshExpires).ToUnixTimeSeconds()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing token");
+                return new RefreshTokenResponse { Success = false, Message = "Internal server error" };
+            }
+        }
+
+        public override async Task<LogoutResponse> Logout(LogoutRequest request, ServerCallContext context)
+        {
+            try
+            {
+                // Revogar JWT (se fornecido) - caso não esteja no header
+                if (!string.IsNullOrWhiteSpace(request.JwtToken))
+                {
+                    await _jwtTokenService.DeactivateTokenAsync(request.JwtToken);
+                }
+                else
+                {
+                    var authHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "authorization")?.Value;
+                    if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer "))
+                    {
+                        var raw = authHeader.Substring(7);
+                        await _jwtTokenService.DeactivateTokenAsync(raw);
+                    }
+                }
+
+                // Revogar refresh token se enviado
+                if (!string.IsNullOrWhiteSpace(request.RefreshToken))
+                {
+                    await _jwtTokenService.InvalidateRefreshTokenAsync(request.RefreshToken, context.Peer);
+                }
+
+                return new LogoutResponse { Success = true, Message = "Logged out" };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error on logout");
+                return new LogoutResponse { Success = false, Message = "Internal server error" };
             }
         }
 

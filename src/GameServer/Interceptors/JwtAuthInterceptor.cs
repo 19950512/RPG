@@ -20,10 +20,9 @@ public class JwtAuthInterceptor : Interceptor
         _publicMethods = new HashSet<string>
         {
             "/auth.AuthService/CreateAccount",
-            "/auth.AuthService/Login",
-            "/world.WorldService/GetWorldEntities",
-            "/world.WorldService/InteractWithEntity",
-            "/world.WorldService/GetWorldUpdates"
+            "/auth.AuthService/Login"
+            // Removed GetWorldEntities to enforce auth
+            // Keeping other world methods protected by service-level header requirement
         };
     }
 
@@ -33,13 +32,14 @@ public class JwtAuthInterceptor : Interceptor
         UnaryServerMethod<TRequest, TResponse> continuation)
     {
         var method = context.Method;
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Auth check unary method={Method} public={Public}", method, _publicMethods.Contains(method));
         
-        _logger.LogInformation("🔍 Checking method: {Method}, IsPublic: {IsPublic}", method, _publicMethods.Contains(method));
-        
-        // Skip authentication for public methods
         if (_publicMethods.Contains(method))
         {
-            _logger.LogInformation("🔓 Public method, skipping auth: {Method}", method);
+            if (_logger.IsEnabled(LogLevel.Trace))
+                _logger.LogTrace("Skipping auth (public) method={Method}", method);
             return await continuation(request, context);
         }
 
@@ -90,7 +90,8 @@ public class JwtAuthInterceptor : Interceptor
         context.RequestHeaders.Add("x-account-id", accountId);
         context.RequestHeaders.Add("x-account-email", email ?? "");
 
-        _logger.LogInformation("Authenticated request for account {AccountId} on method {Method}", accountId, method);
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Authenticated unary request account={AccountId} method={Method}", accountId, method);
 
         return await continuation(request, context);
     }
@@ -102,13 +103,13 @@ public class JwtAuthInterceptor : Interceptor
         ServerStreamingServerMethod<TRequest, TResponse> continuation)
     {
         var method = context.Method;
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Auth check stream method={Method} public={Public}", method, _publicMethods.Contains(method));
         
-        _logger.LogInformation("🌊 Streaming authentication for method: {Method}", method);
-        
-        // Skip authentication for public methods
         if (_publicMethods.Contains(method))
         {
-            _logger.LogInformation("🔓 Public method, skipping auth: {Method}", method);
+            if (_logger.IsEnabled(LogLevel.Trace))
+                _logger.LogTrace("Skipping auth (public) stream method={Method}", method);
             await continuation(request, responseStream, context);
             return;
         }
@@ -122,8 +123,6 @@ public class JwtAuthInterceptor : Interceptor
         }
 
         var token = authHeader.Value;
-        _logger.LogInformation("🔑 Found auth header for streaming: {Method}, token length: {Length}", method, token?.Length ?? 0);
-        
         if (string.IsNullOrEmpty(token) || !token.StartsWith("Bearer "))
         {
             _logger.LogWarning("❌ Invalid authorization header format for streaming method: {Method}", method);
@@ -132,12 +131,9 @@ public class JwtAuthInterceptor : Interceptor
 
         // Remove "Bearer " prefix
         token = token.Substring(7);
-        _logger.LogInformation("🔍 Processing token for streaming: {Method}, clean token length: {Length}", method, token.Length);
 
         // Check if the token is in the active tokens list in the database
         var isTokenActive = await _jwtTokenService.IsTokenActiveAsync(token);
-        _logger.LogInformation("🗃️ Token active check for streaming: {Method}, active: {Active}", method, isTokenActive);
-        
         if (!isTokenActive)
         {
             _logger.LogWarning("❌ Token is not active or has been revoked for streaming: {Method}", method);
@@ -146,8 +142,6 @@ public class JwtAuthInterceptor : Interceptor
 
         // Validate JWT token
         var principal = _jwtTokenService.ValidateToken(token);
-        _logger.LogInformation("👤 Token validation for streaming: {Method}, valid: {Valid}", method, principal != null);
-        
         if (principal == null)
         {
             _logger.LogWarning("❌ Invalid JWT token for streaming method: {Method}", method);
@@ -157,8 +151,6 @@ public class JwtAuthInterceptor : Interceptor
         // Add user context to gRPC context
         var accountId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var email = principal.FindFirst(ClaimTypes.Email)?.Value;
-
-        _logger.LogInformation("🔐 Extracted claims for streaming: {Method}, accountId: {AccountId}, email: {Email}", method, accountId, email);
 
         if (string.IsNullOrEmpty(accountId))
         {
@@ -170,7 +162,8 @@ public class JwtAuthInterceptor : Interceptor
         context.RequestHeaders.Add("x-account-id", accountId);
         context.RequestHeaders.Add("x-account-email", email ?? "");
 
-        _logger.LogInformation("✅ Authenticated streaming request for account {AccountId} on method {Method}", accountId, method);
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Authenticated streaming request account={AccountId} method={Method}", accountId, method);
 
         await continuation(request, responseStream, context);
     }

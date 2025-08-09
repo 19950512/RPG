@@ -12,6 +12,7 @@ public class GameDbContext : DbContext
     public DbSet<AuthToken> AuthTokens { get; set; }
     public DbSet<ActiveToken> ActiveTokens { get; set; }
     public DbSet<WorldEntity> WorldEntities { get; set; }
+    public DbSet<GameServer.Models.RefreshToken> RefreshTokens { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,7 +72,7 @@ public class GameDbContext : DbContext
         modelBuilder.Entity<ActiveToken>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Token).HasMaxLength(255);
+            entity.Property(e => e.Token).HasColumnType("text"); // Remove limit for JWT tokens
             
             entity.HasOne(e => e.Account)
                   .WithMany(a => a.ActiveTokens)
