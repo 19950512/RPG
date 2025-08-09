@@ -44,7 +44,7 @@ public class Player
     public int FacingDirection { get; set; } = 0; // 0=down, 1=left, 2=up, 3=right
     public bool IsOnline { get; set; } = false;
     public DateTime LastUpdate { get; set; } = DateTime.UtcNow;
-    
+
     // Navigation property
     public virtual Account Account { get; set; } = null!;
 }

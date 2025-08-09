@@ -20,6 +20,8 @@ services:
     networks:
       - gameserver-network
     restart: unless-stopped
+    command: >
+      sh -c "until pg_isready -h postgres -U gameuser -d gameserver; do echo 'Aguardando o banco ficar pronto...'; sleep 2; done; dotnet ef database update --project src/GameServer/GameServer.csproj --no-build && dotnet GameServer.dll"
 
   postgres:
     image: postgres:16-alpine

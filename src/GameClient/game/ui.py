@@ -204,7 +204,7 @@ class UI:
         
         # Draw panels
         if self.panels["inventory"]:
-            self._draw_inventory_panel(screen)
+            self._draw_inventory_panel(screen, player_entity)
         if self.panels["character"]:
             self._draw_character_panel(screen, player_entity)
         if self.panels["quest"]:
@@ -324,25 +324,37 @@ class UI:
             text_rect = text_surface.get_rect(center=button["rect"].center)
             screen.blit(text_surface, text_rect)
     
-    def _draw_inventory_panel(self, screen: pygame.Surface):
+    def _draw_inventory_panel(self, screen: pygame.Surface, player: 'Entity' = None):
         """Draw inventory panel"""
         panel_width = 300
         panel_height = 400
         x = self.screen_width - panel_width - 10
         y = self.screen_height // 2 - panel_height // 2
-        
+
         # Background
         bg_rect = pygame.Rect(x, y, panel_width, panel_height)
         pygame.draw.rect(screen, (40, 40, 60), bg_rect)
         pygame.draw.rect(screen, (255, 255, 255), bg_rect, 2)
-        
+
         # Title
         title = self.font.render("Inventory", True, (255, 255, 255))
         screen.blit(title, (x + 10, y + 10))
-        
+
         # Close button
         close_text = self.small_font.render("X", True, (255, 255, 255))
         screen.blit(close_text, (x + panel_width - 20, y + 5))
+
+        # Exibir itens do inventário
+        if player and hasattr(player, 'inventory'):
+            inv_y = y + 50
+            if not player.inventory:
+                empty_text = self.small_font.render("(Inventário vazio)", True, (200, 200, 200))
+                screen.blit(empty_text, (x + 20, inv_y))
+            else:
+                for idx, item in enumerate(player.inventory):
+                    item_text = self.small_font.render(f"{idx+1}. {item}", True, (255, 255, 0))
+                    screen.blit(item_text, (x + 20, inv_y))
+                    inv_y += 28
     
     def _draw_character_panel(self, screen: pygame.Surface, player: Optional[Entity]):
         """Draw character panel"""

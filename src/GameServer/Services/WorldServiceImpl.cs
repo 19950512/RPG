@@ -331,7 +331,7 @@ public class WorldServiceImpl : WorldService.WorldServiceBase
             };
         }
 
-        // Remove item from world (mark for removal)
+        // Remove item do mundo (marcar para remoção)
         await _worldEntityManager.RemoveEntityAsync(entity.Id);
 
         return new InteractionResult

@@ -269,6 +269,22 @@ class GameScreen:
         
         # Handle game-specific events
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                # Coletar item mais próximo
+                if self.local_player:
+                    nearest_item = None
+                    nearest_distance = float('inf')
+                    for entity in self.entity_manager.entities.values():
+                        if entity.type == EntityType.ITEM:
+                            distance = ((entity.x - self.local_player.x) ** 2 + (entity.y - self.local_player.y) ** 2) ** 0.5
+                            if distance < 32 and distance < nearest_distance:
+                                nearest_distance = distance
+                                nearest_item = entity
+                    if nearest_item:
+                        self._pickup_item(nearest_item)
+                    else:
+                        self.ui.add_chat_message("Nenhum item próximo para coletar.")
+                return
             if event.key == pygame.K_ESCAPE:
                 # Stop world updates polling
                 self.world_updates_running = False
@@ -348,7 +364,7 @@ class GameScreen:
                     pass
         
         elif action.startswith("click:"):
-            # Handle entity selection
+            # Handle entity selection ou coleta de item
             coords = action[6:].split(',')
             if len(coords) == 2:
                 try:
@@ -356,28 +372,43 @@ class GameScreen:
                     click_y = float(coords[1])
                     selected_entity = self._get_entity_at_position(click_x, click_y)
                     self.ui.set_selected_entity(selected_entity)
-                    
                     if selected_entity:
-                        self.ui.add_chat_message(f"Selected {selected_entity.name}")
+                        if selected_entity.type == EntityType.ITEM:
+                            self._pickup_item(selected_entity)
+                        else:
+                            self.ui.add_chat_message(f"Selected {selected_entity.name}")
                 except ValueError:
                     pass
-        
         elif action == "attack":
             if self.ui.selected_entity and self.ui.selected_entity.type == EntityType.MONSTER:
                 self._attack_entity(self.ui.selected_entity)
             else:
                 self._attack_nearest_enemy()
-        
         elif action == "heal":
             self._use_heal_potion()
-        
         elif action == "run":
             self.local_player.movement_state = MovementState.RUNNING
             self.ui.add_chat_message("Running mode activated")
-        
         elif action.startswith("chat:"):
             chat_message = action[5:]
             self._process_chat_command(chat_message)
+
+    def _pickup_item(self, item_entity):
+        """Solicita ao servidor a coleta do item e atualiza o inventário local"""
+        try:
+            if hasattr(self.game, 'auth_token') and self.game.auth_token:
+                response = world_client.interact_with_entity(
+                    entity_id=item_entity.id,
+                    interaction_type="pickup"
+                )
+                if response.success:
+                    self.ui.add_chat_message(f"👜 {response.message}")
+                    # Remove item localmente
+                    self.entity_manager.remove_entity(item_entity.id)
+                else:
+                    self.ui.add_chat_message(f"❌ {response.message}")
+        except Exception as e:
+            self.ui.add_chat_message(f"⚠️ Erro ao coletar item: {e}")
     
     def _get_entity_at_position(self, x: float, y: float) -> Optional[Entity]:
         """Get entity at world position"""
@@ -910,7 +941,7 @@ class GameScreen:
                         self.local_player.x = response.player.position_x
                         self.local_player.y = response.player.position_y
                         self.local_player.name = response.player.name
-                        
+
                         # Sync stats from server (this overwrites local data with server data)
                         self.local_player.stats.level = response.player.level
                         self.local_player.stats.experience = response.player.experience
@@ -922,7 +953,13 @@ class GameScreen:
                         self.local_player.stats.defense = response.player.defense
                         self.local_player.facing_direction = response.player.facing_direction
                         self.local_player.movement_state = response.player.movement_state
-                        
+
+                        # Sincronizar inventário
+                        if hasattr(response.player, 'inventory'):
+                            self.local_player.inventory = list(response.player.inventory)
+                        else:
+                            self.local_player.inventory = []
+
                         self.ui.add_chat_message(f"📍 Position: ({response.player.position_x:.0f}, {response.player.position_y:.0f})")
                         self.ui.add_chat_message(f"📊 Server Data: Level {response.player.level}, EXP {response.player.experience}")
                         print(f"📊 Player data synced from server: Level {response.player.level}, EXP {response.player.experience}")

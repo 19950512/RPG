@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using GameServer.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GameServer.Migrations
 {
     [DbContext(typeof(GameDbContext))]
-    partial class GameDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250809071331_AddPlayerInventory")]
+    partial class AddPlayerInventory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50,7 +53,7 @@ namespace GameServer.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Accounts", (string)null);
+                    b.ToTable("Accounts");
                 });
 
             modelBuilder.Entity("GameServer.Models.ActiveToken", b =>
@@ -75,7 +78,7 @@ namespace GameServer.Migrations
 
                     b.HasIndex("AccountId");
 
-                    b.ToTable("ActiveTokens", (string)null);
+                    b.ToTable("ActiveTokens");
                 });
 
             modelBuilder.Entity("GameServer.Models.AuthToken", b =>
@@ -99,7 +102,7 @@ namespace GameServer.Migrations
 
                     b.HasIndex("AccountId");
 
-                    b.ToTable("AuthTokens", (string)null);
+                    b.ToTable("AuthTokens");
                 });
 
             modelBuilder.Entity("GameServer.Models.Player", b =>
@@ -203,7 +206,7 @@ namespace GameServer.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Players", (string)null);
+                    b.ToTable("Players");
                 });
 
             modelBuilder.Entity("GameServer.Models.RefreshToken", b =>
@@ -243,7 +246,7 @@ namespace GameServer.Migrations
 
                     b.HasIndex("AccountId");
 
-                    b.ToTable("RefreshTokens", (string)null);
+                    b.ToTable("RefreshTokens");
                 });
 
             modelBuilder.Entity("GameServer.Models.WorldEntity", b =>
@@ -328,7 +331,7 @@ namespace GameServer.Migrations
 
                     b.HasIndex("EntityType");
 
-                    b.ToTable("WorldEntities", (string)null);
+                    b.ToTable("WorldEntities");
                 });
 
             modelBuilder.Entity("GameServer.Models.ActiveToken", b =>

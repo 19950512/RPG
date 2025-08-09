@@ -47,12 +47,33 @@ CREATE TABLE IF NOT EXISTS "Players" (
     "LastUpdate" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- AuthTokens table
+CREATE TABLE IF NOT EXISTS "AuthTokens" (
+    "Id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "AccountId" UUID NOT NULL REFERENCES "Accounts"("Id") ON DELETE CASCADE,
+    "JwtToken" VARCHAR(1000) NOT NULL,
+    "ExpiresAt" TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
 -- ActiveTokens table
 CREATE TABLE IF NOT EXISTS "ActiveTokens" (
     "Id" SERIAL PRIMARY KEY,
     "AccountId" UUID NOT NULL REFERENCES "Accounts"("Id") ON DELETE CASCADE,
     "Token" TEXT NOT NULL,
     "Expires" TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+-- RefreshTokens table
+CREATE TABLE IF NOT EXISTS "RefreshTokens" (
+    "Id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "AccountId" UUID NOT NULL REFERENCES "Accounts"("Id") ON DELETE CASCADE,
+    "TokenHash" VARCHAR(512) NOT NULL,
+    "ExpiresAt" TIMESTAMP WITH TIME ZONE NOT NULL,
+    "CreatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "CreatedByIp" VARCHAR(45) NOT NULL DEFAULT '',
+    "RevokedAt" TIMESTAMP WITH TIME ZONE NULL,
+    "RevokedByIp" VARCHAR(45) NULL,
+    "ReplacedByTokenHash" VARCHAR(512) NULL
 );
 
 -- WorldEntities table for NPCs, monsters, and items
@@ -95,8 +116,11 @@ CREATE TABLE IF NOT EXISTS "WorldEntities" (
 CREATE INDEX IF NOT EXISTS "IX_Accounts_Email" ON "Accounts" ("Email");
 CREATE INDEX IF NOT EXISTS "IX_Players_AccountId" ON "Players" ("AccountId");
 CREATE INDEX IF NOT EXISTS "IX_Players_Name" ON "Players" ("Name");
+CREATE INDEX IF NOT EXISTS "IX_AuthTokens_AccountId" ON "AuthTokens" ("AccountId");
 CREATE INDEX IF NOT EXISTS "IX_ActiveTokens_AccountId" ON "ActiveTokens" ("AccountId");
 CREATE INDEX IF NOT EXISTS "IX_ActiveTokens_Expires" ON "ActiveTokens" ("Expires");
+CREATE INDEX IF NOT EXISTS "IX_RefreshTokens_AccountId" ON "RefreshTokens" ("AccountId");
+CREATE INDEX IF NOT EXISTS "IX_RefreshTokens_TokenHash" ON "RefreshTokens" ("TokenHash");
 CREATE INDEX IF NOT EXISTS "IX_WorldEntities_EntityType" ON "WorldEntities" ("EntityType");
 CREATE INDEX IF NOT EXISTS "IX_WorldEntities_IsAlive" ON "WorldEntities" ("IsAlive");
 

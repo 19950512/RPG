@@ -1,8 +1,15 @@
 import grpc
 import threading
 import os
-from .Generated import auth_pb2_grpc, auth_pb2
-from .Generated import player_pb2_grpc, player_pb2
+import sys
+
+# Adicionar o diretório Generated ao path para imports absolutos
+current_dir = os.path.dirname(__file__)
+generated_dir = os.path.join(current_dir, 'Generated')
+sys.path.insert(0, generated_dir)
+
+import auth_pb2_grpc, auth_pb2
+import player_pb2_grpc, player_pb2
 import json, time, pathlib
 
 TOKEN_STORE_PATH = pathlib.Path.home() / '.rpg_client_tokens.json'

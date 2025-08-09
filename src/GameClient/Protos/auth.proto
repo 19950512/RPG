@@ -26,10 +26,37 @@ message LoginResponse {
   string message = 2;
   string jwt_token = 3;
   int64 expires_at = 4; // Unix timestamp
+  string refresh_token = 5;
+  int64 refresh_expires_at = 6;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string message = 2;
+  string jwt_token = 3;
+  int64 expires_at = 4;
+  string refresh_token = 5; // new refresh (rotated)
+  int64 refresh_expires_at = 6;
+}
+
+message LogoutRequest {
+  string jwt_token = 1; // opcional se já vem no authorization, mas permite logout explícito de outro device
+  string refresh_token = 2; // para revogar refresh específico
+}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
 }
 
 // Authentication service
 service AuthService {
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
   rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
 }

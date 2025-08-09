@@ -36,6 +36,15 @@ message JoinWorldResponse {
   repeated PlayerInfo other_players = 4;
 }
 
+message LeaveWorldRequest {
+  // Empty - uses JWT for account identification
+}
+
+message LeaveWorldResponse {
+  bool success = 1;
+  string message = 2;
+}
+
 message PlayerMoveRequest {
   float target_x = 1;
   float target_y = 2;
@@ -45,15 +54,6 @@ message PlayerMoveRequest {
 message PlayerMoveResponse {
   bool success = 1;
   string message = 2;
-}
-
-message WorldUpdateRequest {
-  // Empty - stream request
-}
-
-message WorldUpdateResponse {
-  repeated PlayerInfo players = 1;
-  int64 timestamp = 2;
 }
 
 message PlayerActionRequest {
@@ -104,6 +104,7 @@ message PlayerInfo {
   string movement_state = 15;
   int32 facing_direction = 16;
   bool is_online = 17;
+  repeated string inventory = 18;
 }
 
 // Player service (requires JWT authentication)
@@ -113,12 +114,10 @@ service PlayerService {
   
   // Game world operations
   rpc JoinWorld(JoinWorldRequest) returns (JoinWorldResponse);
+  rpc LeaveWorld(LeaveWorldRequest) returns (LeaveWorldResponse);
   rpc MovePlayer(PlayerMoveRequest) returns (PlayerMoveResponse);
   rpc PerformAction(PlayerActionRequest) returns (PlayerActionResponse);
   
   // World state
   rpc GetWorldState(GetWorldStateRequest) returns (GetWorldStateResponse);
-  
-  // Real-time updates (streaming - experimental)
-  rpc GetWorldUpdates(WorldUpdateRequest) returns (stream WorldUpdateResponse);
 }

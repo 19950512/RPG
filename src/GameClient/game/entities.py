@@ -52,11 +52,14 @@ class Entity:
         # Game stats
         self.stats = Stats(100, 100, 50, 50, 1, 0, 10, 5, 100.0)
         
+        # Inventário do jogador (lista de strings)
+        self.inventory = []
+
         # State
         self.last_update = time.time()
         self.is_selected = False
         self.in_combat = False
-        
+
         # Network sync
         self.last_sync = time.time()
         self.needs_sync = False

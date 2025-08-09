@@ -66,10 +66,10 @@ class GrpcClient:
         """Register a new account"""
         try:
             self._ensure_connection()
-            request = auth_pb2.RegisterRequest()
+            request = auth_pb2.CreateAccountRequest()
             request.email = email
             request.password = password
-            response = self.auth_stub.Register(request)
+            response = self.auth_stub.CreateAccount(request)
             print(f"Register response: success={response.success}, message={response.message}")
             return response
         except grpc.RpcError as e:
@@ -155,11 +155,30 @@ class GrpcClient:
             print(f"Error in join_world: {e}")
             return None
 
+    def leave_world(self, token):
+        """Leave the game world"""
+        try:
+            self._ensure_connection()
+            request = player_pb2.LeaveWorldRequest()
+            
+            # Add auth header
+            metadata = [('authorization', f'Bearer {token}')]
+            
+            response = self.player_stub.LeaveWorld(request, metadata=metadata)
+            print(f"Leave world response: success={response.success}, message={response.message}")
+            return response
+        except grpc.RpcError as e:
+            print(f"gRPC error in leave_world: {e.code()} - {e.details()}")
+            return None
+        except Exception as e:
+            print(f"Error in leave_world: {e}")
+            return None
+
     def move_player(self, token, target_x, target_y, movement_type="walk"):
         """Move player to a target position"""
         try:
             self._ensure_connection()
-            request = player_pb2.MovePlayerRequest()
+            request = player_pb2.PlayerMoveRequest()
             request.target_x = target_x
             request.target_y = target_y
             request.movement_type = movement_type
