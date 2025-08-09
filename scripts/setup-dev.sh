@@ -18,15 +18,28 @@ fi
 mkdir -p ./logs
 
 # Build and start the development environment
-echo "🐳 Starting Docker containers..."
+echo "🐳 Stopping any existing containers..."
+docker-compose -f docker-compose.dev.yml down -v
+
+echo "🐳 Building and starting Docker containers..."
 docker-compose -f docker-compose.dev.yml up --build -d
 
 echo "⏳ Waiting for services to be ready..."
-sleep 10
+sleep 15
 
 # Check if services are healthy
 echo "🏥 Checking service health..."
 docker-compose -f docker-compose.dev.yml ps
+
+# Test database connection
+echo "🗃️ Testing database connection..."
+sleep 5
+if docker-compose -f docker-compose.dev.yml exec -T postgres psql -U gameuser -d gameserver -c "SELECT COUNT(*) FROM \"Accounts\";" >/dev/null 2>&1; then
+    echo "✅ Database tables created successfully!"
+else
+    echo "⚠️ Database tables not found. Checking initialization..."
+    docker-compose -f docker-compose.dev.yml logs postgres | tail -10
+fi
 
 echo ""
 echo "✅ Game Server development environment is ready!"

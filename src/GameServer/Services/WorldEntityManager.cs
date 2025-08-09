@@ -23,40 +23,44 @@ public interface IWorldEntityManager
     void UnsubscribeFromUpdates(Channel<List<EntityUpdate>> channel);
 }
 
-public class WorldEntityManager : IWorldEntityManager, IDisposable
-{
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<WorldEntityManager> _logger;
-    private readonly ConcurrentDictionary<Guid, WorldEntity> _entities = new();
-    private readonly List<Channel<List<EntityUpdate>>> _updateSubscribers = new();
-    private readonly Timer _respawnTimer;
-    private readonly Timer _broadcastTimer;
-    private readonly ConcurrentQueue<EntityUpdate> _pendingUpdates = new();
-    private readonly SemaphoreSlim _loadSemaphore = new(1,1);
-
-    public WorldEntityManager(IServiceScopeFactory scopeFactory, ILogger<WorldEntityManager> logger)
+    public class WorldEntityManager : IWorldEntityManager, IDisposable
     {
-        _scopeFactory = scopeFactory;
-        _logger = logger;
-        
-        _logger.LogInformation("🌍 WorldEntityManager inicializando...");
-        
-        // Initialize timers
-        _respawnTimer = new Timer(state => Task.Run(() => ProcessRespawns(state)), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
-        _broadcastTimer = new Timer(state => Task.Run(() => ProcessBroadcasts(state)), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
-        
-        // Load entities from database (fire and forget, mas poderemos forçar depois)
-        _logger.LogInformation("🌍 Iniciando carregamento de entidades do banco...");
-        _ = Task.Run(async () => await LoadEntitiesFromDatabase(null));
-    }
+        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ILogger<WorldEntityManager> _logger;
+        private readonly ConcurrentDictionary<Guid, WorldEntity> _entities = new();
+        private readonly List<Channel<List<EntityUpdate>>> _updateSubscribers = new();
+        private readonly Timer _respawnTimer;
+        private readonly Timer _broadcastTimer;
+        private readonly ConcurrentQueue<EntityUpdate> _pendingUpdates = new();
+        private readonly SemaphoreSlim _loadSemaphore = new(1,1);
+        private readonly Task _initializationTask;
 
-    public Task<IEnumerable<WorldEntity>> GetAllEntitiesAsync()
-    {
-        var list = _entities.Values.Where(e => e.EntityType != "monster" || e.IsAlive);
-        _logger.LogInformation("🌍 GetAllEntitiesAsync chamado - retornando {Count} entidades (cache total: {CacheTotal})", 
-            list.Count(), _entities.Count);
-        return Task.FromResult(list);
-    }
+        public WorldEntityManager(IServiceScopeFactory scopeFactory, ILogger<WorldEntityManager> logger)
+        {
+            _scopeFactory = scopeFactory;
+            _logger = logger;
+            
+            _logger.LogInformation("🌍 WorldEntityManager inicializando...");
+            
+            // Initialize timers
+            _respawnTimer = new Timer(state => Task.Run(() => ProcessRespawns(state)), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            _broadcastTimer = new Timer(state => Task.Run(() => ProcessBroadcasts(state)), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+            
+            // Load entities from database (garantir que termine antes de aceitar chamadas)
+            _logger.LogInformation("🌍 Iniciando carregamento de entidades do banco...");
+            _initializationTask = LoadEntitiesFromDatabaseAsync();
+        }
+
+        public async Task<IEnumerable<WorldEntity>> GetAllEntitiesAsync()
+        {
+            // Aguardar a inicialização terminar se ainda não terminou
+            await _initializationTask;
+            
+            var list = _entities.Values.Where(e => e.EntityType != "monster" || e.IsAlive);
+            _logger.LogInformation("🌍 GetAllEntitiesAsync chamado - retornando {Count} entidades (cache total: {CacheTotal})", 
+                list.Count(), _entities.Count);
+            return list;
+        }
 
     public Task<WorldEntity?> GetEntityAsync(Guid entityId)
     {
@@ -311,6 +315,11 @@ public class WorldEntityManager : IWorldEntityManager, IDisposable
         {
             _updateSubscribers.Remove(channel);
         }
+    }
+
+    private async Task LoadEntitiesFromDatabaseAsync()
+    {
+        await LoadEntitiesFromDatabase(null);
     }
 
     private async Task LoadEntitiesFromDatabase(object? state)
