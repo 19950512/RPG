@@ -6,9 +6,6 @@ using GameServer.Interceptors;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Force Development environment for testing
-builder.Environment.EnvironmentName = "Development";
-
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -36,7 +33,10 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 
 // Register custom services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-builder.Services.AddSingleton<IWorldService, WorldService>();
+builder.Services.AddSingleton<IWorldManager, WorldManager>();
+builder.Services.AddSingleton<IWorldEntityManager, WorldEntityManager>();
+builder.Services.AddHostedService<WorldEntityWarmupHostedService>();
+builder.Services.AddScoped<JwtAuthInterceptor>();
 
 // Add gRPC services
 builder.Services.AddGrpc(options =>
@@ -63,6 +63,7 @@ if (app.Environment.IsDevelopment())
 // Map gRPC services
 app.MapGrpcService<GameServer.Services.AuthService>();
 app.MapGrpcService<GameServer.Services.PlayerServiceImpl>();
+app.MapGrpcService<GameServer.Services.WorldServiceImpl>();
 
 // Health check endpoint
 app.MapGet("/health", () => "Healthy");

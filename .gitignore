@@ -19,6 +19,7 @@ obj/
 [Rr]elease/
 x64/
 build/
+venv
 [Bb]in/
 [Oo]bj/
 msbuild.log

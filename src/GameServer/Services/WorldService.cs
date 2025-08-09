@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GameServer.Services;
 
-public interface IWorldService
+public interface IWorldManager
 {
     Task<bool> JoinWorldAsync(Guid playerId);
     Task<bool> LeaveWorldAsync(Guid playerId);
@@ -19,14 +19,14 @@ public interface IWorldService
     Task<IEnumerable<Player>> GetPlayersInRangeAsync(float x, float y, float range);
 }
 
-public class WorldService : IWorldService
+public class WorldManager : IWorldManager
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<WorldService> _logger;
+    private readonly ILogger<WorldManager> _logger;
     private readonly ConcurrentDictionary<Guid, Player> _onlinePlayers = new();
     private readonly Timer _updateTimer;
 
-    public WorldService(IServiceScopeFactory scopeFactory, ILogger<WorldService> logger)
+    public WorldManager(IServiceScopeFactory scopeFactory, ILogger<WorldManager> logger)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;

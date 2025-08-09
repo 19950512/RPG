@@ -56,18 +56,9 @@ message PlayerMoveResponse {
   string message = 2;
 }
 
-message WorldUpdateRequest {
-  // Empty - stream request
-}
-
-message WorldUpdateResponse {
-  repeated PlayerInfo players = 1;
-  int64 timestamp = 2;
-}
-
 message PlayerActionRequest {
   string action_type = 1; // "attack", "heal", "cast_spell"
-  string target_id = 2;
+  string target_id = 2; // ID do monstro/NPC/player
   map<string, string> parameters = 3;
 }
 
@@ -128,7 +119,4 @@ service PlayerService {
   
   // World state
   rpc GetWorldState(GetWorldStateRequest) returns (GetWorldStateResponse);
-  
-  // Real-time updates (streaming - experimental)
-  rpc GetWorldUpdates(WorldUpdateRequest) returns (stream WorldUpdateResponse);
 }

@@ -8,6 +8,7 @@ from .world import GameMap
 from .entities import Entity, EntityManager, EntityType, MovementState
 from .ui import Camera, UI
 from ..grpc_client import grpc_client
+from ..world_client import world_client
 
 class GameScreen:
     def __init__(self, game):
@@ -40,9 +41,11 @@ class GameScreen:
         
         # Thread control for world updates
         self.world_updates_running = False
+        self.world_entity_updates_running = False
         
         # Thread-safe queue for world updates
         self.world_updates_queue = queue.Queue()
+        self.world_entity_updates_queue = queue.Queue()
         
         # Initialize world
         self._initialize_world()
@@ -71,34 +74,8 @@ class GameScreen:
         self.entity_manager.add_entity(self.local_player)
         self.entity_manager.local_player_id = self.local_player.id
         
-        # Add NPCs
-        for npc_x, npc_y, npc_name in self.game_map.npc_positions:
-            world_x, world_y = self.game_map.tile_to_world(npc_x, npc_y)
-            npc = Entity(
-                entity_id=f"npc_{npc_name.lower()}",
-                entity_type=EntityType.NPC,
-                x=world_x,
-                y=world_y,
-                name=npc_name
-            )
-            npc.color = (0, 200, 0)  # Green for NPCs
-            self.entity_manager.add_entity(npc)
-        
-        # Add some monsters
-        for monster_x, monster_y, monster_name in self.game_map.monster_spawns:
-            world_x, world_y = self.game_map.tile_to_world(monster_x, monster_y)
-            monster = Entity(
-                entity_id=f"monster_{monster_name.lower()}_{monster_x}_{monster_y}",
-                entity_type=EntityType.MONSTER,
-                x=world_x,
-                y=world_y,
-                name=monster_name
-            )
-            monster.color = (200, 0, 0)  # Red for monsters
-            monster.stats.hp = 50
-            monster.stats.max_hp = 50
-            monster.stats.attack = 8
-            self.entity_manager.add_entity(monster)
+        # NPCs and monsters will be loaded from server
+        # (Removed local creation - all entities now come from server)
         
         # Add welcome message
         self.ui.add_chat_message("Welcome to the RPG world!")
@@ -108,6 +85,105 @@ class GameScreen:
         self.ui.add_chat_message("Press I for inventory, C for character")
         
         # JoinWorld will be called after the game state is properly initialized
+        self._join_world_on_server()
+        
+        # Load world entities from server
+        self._load_world_entities()
+
+    def _load_world_entities(self):
+        """Load NPCs, monsters, and items from server"""
+        try:
+            # Always try to load world entities, even without auth token (for testing)
+            print("🌍 Loading world entities from server...")
+            
+            # Try with auth token first, then without for compatibility
+            auth_token = None
+            if hasattr(self.game, 'auth_token') and self.game.auth_token:
+                auth_token = self.game.auth_token
+                
+            response = world_client.get_world_entities(auth_token)
+            
+            # Clear existing NPCs and monsters (keep only players)
+            self._cleanup_world_entities()
+            
+            # Add NPCs from server
+            for npc_data in response.npcs:
+                npc = self._create_entity_from_server_data(npc_data)
+                self.entity_manager.add_entity(npc)
+                print(f"🟢 Added NPC: {npc.name} at ({npc.x:.0f}, {npc.y:.0f})")
+            
+            # Add monsters from server  
+            for monster_data in response.monsters:
+                monster = self._create_entity_from_server_data(monster_data)
+                self.entity_manager.add_entity(monster)
+                print(f"🔴 Added Monster: {monster.name} at ({monster.x:.0f}, {monster.y:.0f}) HP: {monster.stats.hp}/{monster.stats.max_hp}")
+            
+            # Add items from server
+            for item_data in response.items:
+                item = self._create_entity_from_server_data(item_data)
+                self.entity_manager.add_entity(item)
+                print(f"🟡 Added Item: {item.name} at ({item.x:.0f}, {item.y:.0f})")
+                
+            print(f"✅ Loaded {len(response.npcs)} NPCs, {len(response.monsters)} monsters, {len(response.items)} items")
+            self.ui.add_chat_message(f"🌍 Loaded {len(response.npcs)} NPCs, {len(response.monsters)} monsters, {len(response.items)} items from server!")
+                
+        except Exception as e:
+            print(f"❌ Error loading world entities: {e}")
+            self.ui.add_chat_message("⚠️ Failed to load world entities from server")
+    
+    def _create_entity_from_server_data(self, entity_data):
+        """Create a local Entity object from server WorldEntity data"""
+        # Determine entity type
+        if entity_data.entity_type == "npc":
+            entity_type = EntityType.NPC
+            color = (0, 200, 0)  # Green
+        elif entity_data.entity_type == "monster":
+            entity_type = EntityType.MONSTER  
+            color = (200, 0, 0)  # Red
+        elif entity_data.entity_type == "item":
+            entity_type = EntityType.ITEM
+            color = (255, 255, 0)  # Yellow
+        else:
+            entity_type = EntityType.NPC  # Default
+            color = (128, 128, 128)  # Gray
+        
+        # Create entity
+        entity = Entity(
+            entity_id=entity_data.id,
+            entity_type=entity_type,
+            x=entity_data.position_x,
+            y=entity_data.position_y,
+            name=entity_data.name
+        )
+        
+        # Set color
+        entity.color = color
+        
+        # Set stats for monsters
+        if entity_type == EntityType.MONSTER:
+            entity.stats.hp = entity_data.current_hp
+            entity.stats.max_hp = entity_data.max_hp
+            entity.stats.mp = entity_data.current_mp
+            entity.stats.max_mp = entity_data.max_mp
+            entity.stats.attack = entity_data.attack
+            entity.stats.defense = entity_data.defense
+            entity.facing_direction = entity_data.facing_direction
+            entity.movement_state = MovementState(entity_data.movement_state) if entity_data.movement_state else MovementState.IDLE
+        
+        return entity
+    
+    def _cleanup_world_entities(self):
+        """Remove all NPCs, monsters, and items from entity manager"""
+        entity_ids_to_remove = []
+        
+        for entity_id, entity in self.entity_manager.entities.items():
+            if entity.type in [EntityType.NPC, EntityType.MONSTER, EntityType.ITEM]:
+                entity_ids_to_remove.append(entity_id)
+        
+        for entity_id in entity_ids_to_remove:
+            self.entity_manager.remove_entity(entity_id)
+            
+        print(f"🧹 Cleaned up {len(entity_ids_to_remove)} world entities")
     
     def reset(self):
         """Called when switching to this state"""
@@ -115,7 +191,7 @@ class GameScreen:
         
         # Reset world state
         self.world_joined = False
-        self.world_updates_running = False
+        self._stop_all_updates()
         
         # Clear any existing remote players (keep local player and NPCs/monsters)
         self._cleanup_remote_players()
@@ -132,12 +208,18 @@ class GameScreen:
         
         # Reset flags
         self.world_joined = False
-        self.world_updates_running = False
+        self._stop_all_updates()
         
-        # Clear world updates queue
+        # Clear world updates queues
         while not self.world_updates_queue.empty():
             try:
                 self.world_updates_queue.get_nowait()
+            except:
+                break
+                
+        while not self.world_entity_updates_queue.empty():
+            try:
+                self.world_entity_updates_queue.get_nowait()
             except:
                 break
         
@@ -319,38 +401,88 @@ class GameScreen:
         if not self.local_player or target == self.local_player:
             return
         
-        if self.local_player.attack(target):
-            self.ui.add_chat_message(f"Attacking {target.name}!")
-            
-            # Simple AI: monster attacks back
-            if target.type == EntityType.MONSTER and target.stats.hp > 0:
-                damage = max(1, target.stats.attack - self.local_player.stats.defense)
-                self.local_player.take_damage(damage)
-                self.ui.add_chat_message(f"{target.name} hits you for {damage} damage!")
-                
-                # Auto-sync HP changes after taking damage
-                self._sync_player_stats_to_server()
-                
-                if self.local_player.stats.hp <= 0:
-                    self.ui.add_chat_message("You have died! Respawning...")
-                    self._respawn_player()
-            
-            # Check if target died
-            if target.stats.hp <= 0:
-                self.ui.add_chat_message(f"{target.name} has been defeated!")
-                if target.type == EntityType.MONSTER:
-                    # Give experience
-                    exp_gained = target.stats.level * 10
-                    self.local_player.stats.experience += exp_gained
-                    self.ui.add_chat_message(f"Gained {exp_gained} experience!")
-                    
-                    # Auto-sync experience gained to server
-                    self._sync_player_stats_to_server()
-                    
-                    # Check level up
-                    self._check_level_up()
-        else:
+        # Check distance
+        distance = ((self.local_player.x - target.x) ** 2 + (self.local_player.y - target.y) ** 2) ** 0.5
+        if distance > 64:  # Attack range
             self.ui.add_chat_message("Target is too far away!")
+            return
+        
+        # If attacking a monster or NPC, use server interaction
+        if target.type in [EntityType.MONSTER, EntityType.NPC]:
+            self._attack_world_entity(target)
+        else:
+            # For players, use existing system (though this could also be server-side)
+            if self.local_player.attack(target):
+                self.ui.add_chat_message(f"Attacking {target.name}!")
+    
+    def _attack_world_entity(self, target: Entity):
+        """Attack a world entity (monster/NPC) via server"""
+        try:
+            if hasattr(self.game, 'auth_token') and self.game.auth_token:
+                print(f"🗡️ Attacking {target.name} (ID: {target.id}) via server...")
+                
+                # Send attack request to server
+                response = world_client.interact_with_entity(
+                    token=self.game.auth_token,
+                    entity_id=target.id,
+                    interaction_type="attack",
+                    parameters={
+                        "player_attack": str(self.local_player.stats.attack),
+                        "player_level": str(self.local_player.stats.level)
+                    }
+                )
+                
+                if response.success:
+                    self.ui.add_chat_message(f"⚔️ {response.message}")
+                    
+                    # Update affected entities
+                    for entity_data in response.affected_entities:
+                        self._update_entity_from_server_data(entity_data)
+                    
+                    # Process rewards (XP, items, etc.)
+                    if response.rewards:
+                        for reward_type, reward_value in response.rewards.items():
+                            if reward_type == "experience":
+                                exp_gained = int(reward_value)
+                                self.local_player.stats.experience += exp_gained
+                                self.ui.add_chat_message(f"✨ Gained {exp_gained} experience!")
+                                self._check_level_up()
+                                self._sync_player_stats_to_server()
+                            elif reward_type == "gold":
+                                gold_gained = int(reward_value)
+                                self.ui.add_chat_message(f"💰 Gained {gold_gained} gold!")
+                else:
+                    self.ui.add_chat_message(f"❌ {response.message}")
+                    
+        except Exception as e:
+            print(f"❌ Error attacking entity: {e}")
+            self.ui.add_chat_message("⚠️ Attack failed - server error")
+    
+    def _update_entity_from_server_data(self, entity_data):
+        """Update a local entity with data from server"""
+        entity = self.entity_manager.get_entity(entity_data.id)
+        if entity:
+            # Update position
+            entity.x = entity_data.position_x
+            entity.y = entity_data.position_y
+            
+            # Update stats for monsters
+            if entity.type == EntityType.MONSTER:
+                entity.stats.hp = entity_data.current_hp
+                entity.stats.max_hp = entity_data.max_hp
+                entity.stats.mp = entity_data.current_mp
+                entity.stats.max_mp = entity_data.max_mp
+                entity.facing_direction = entity_data.facing_direction
+                entity.movement_state = MovementState(entity_data.movement_state) if entity_data.movement_state else MovementState.IDLE
+                
+                # If entity died, show death message and remove it
+                if not entity_data.is_alive and entity.stats.hp <= 0:
+                    self.ui.add_chat_message(f"💀 {entity.name} has been defeated!")
+                    # Entity will be removed in next world update
+            
+            print(f"🔄 Updated {entity.name}: HP {entity.stats.hp}/{entity.stats.max_hp}")
+        else:
+            print(f"⚠️ Entity {entity_data.id} not found locally")
     
     def _attack_nearest_enemy(self):
         """Attack the nearest monster"""
@@ -611,6 +743,9 @@ class GameScreen:
         # Process world updates from streaming thread
         self._process_world_updates_queue()
         
+        # Process world entity updates from streaming thread
+        self._process_world_entity_updates()
+        
         # Handle continuous movement (check pressed keys)
         self._handle_continuous_movement()
         
@@ -807,6 +942,12 @@ class GameScreen:
                     
                     # Start world updates stream for real-time multiplayer
                     self._start_world_updates_stream()
+                    
+                    # Start world entity updates stream for real-time world state
+                    self._start_world_entity_updates_stream()
+                    
+                    # Load world entities after successfully joining world
+                    self._load_world_entities()
                 else:
                     self.ui.add_chat_message(f"❌ Failed to join world: {response.message}")
                     print(f"❌ DEBUG: Failed to join world: {response.message}")
@@ -1091,3 +1232,76 @@ class GameScreen:
             if entity:
                 self.entity_manager.remove_entity(entity_id)
                 print(f"🧹 Cleared remote player: {entity.name}")
+    
+    def _start_world_entity_updates_stream(self):
+        """Start receiving real-time world entity updates from server"""
+        if not hasattr(self.game, 'auth_token') or not self.game.auth_token:
+            return
+            
+        try:
+            # Set flag to start thread
+            self.world_entity_updates_running = True
+            
+            # Start world entity updates in a separate thread
+            threading.Thread(target=self._world_entity_updates_worker, daemon=True).start()
+            print("🌍 Started world entity updates stream")
+        except Exception as e:
+            print(f"❌ Failed to start world entity updates: {e}")
+    
+    def _world_entity_updates_worker(self):
+        """Worker thread for world entity updates streaming"""
+        try:
+            print("🌍 Starting world entity updates stream...")
+            
+            # Get the stream from server
+            stream = world_client.get_world_updates_stream(self.game.auth_token)
+            
+            for update in stream:
+                # Check if we should still be running
+                if not self.world_entity_updates_running:
+                    break
+                
+                # Put update in queue for main thread processing
+                self.world_entity_updates_queue.put(update)
+                
+        except Exception as e:
+            print(f"❌ World entity updates stream error: {e}")
+        finally:
+            print("🌍 World entity updates stream ended")
+    
+    def _process_world_entity_updates(self):
+        """Process world entity updates from the queue (called from main thread)"""
+        try:
+            while not self.world_entity_updates_queue.empty():
+                update = self.world_entity_updates_queue.get_nowait()
+                
+                # Process updated entities
+                for entity_data in update.updated_entities:
+                    existing_entity = self.entity_manager.get_entity(entity_data.id)
+                    
+                    if existing_entity:
+                        # Update existing entity
+                        self._update_entity_from_server_data(entity_data)
+                    else:
+                        # Add new entity
+                        new_entity = self._create_entity_from_server_data(entity_data)
+                        self.entity_manager.add_entity(new_entity)
+                        print(f"➕ Added new entity: {new_entity.name}")
+                
+                # Process removed entities
+                for removed_id in update.removed_entity_ids:
+                    entity = self.entity_manager.get_entity(removed_id)
+                    if entity:
+                        self.entity_manager.remove_entity(removed_id)
+                        print(f"➖ Removed entity: {entity.name}")
+                
+        except queue.Empty:
+            pass
+        except Exception as e:
+            print(f"❌ Error processing world entity updates: {e}")
+    
+    def _stop_all_updates(self):
+        """Stop all update streams"""
+        self.world_updates_running = False
+        self.world_entity_updates_running = False
+        print("🛑 All update streams stopped")

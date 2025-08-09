@@ -20,7 +20,10 @@ public class JwtAuthInterceptor : Interceptor
         _publicMethods = new HashSet<string>
         {
             "/auth.AuthService/CreateAccount",
-            "/auth.AuthService/Login"
+            "/auth.AuthService/Login",
+            "/world.WorldService/GetWorldEntities",
+            "/world.WorldService/InteractWithEntity",
+            "/world.WorldService/GetWorldUpdates"
         };
     }
 
@@ -31,9 +34,12 @@ public class JwtAuthInterceptor : Interceptor
     {
         var method = context.Method;
         
+        _logger.LogInformation("🔍 Checking method: {Method}, IsPublic: {IsPublic}", method, _publicMethods.Contains(method));
+        
         // Skip authentication for public methods
         if (_publicMethods.Contains(method))
         {
+            _logger.LogInformation("🔓 Public method, skipping auth: {Method}", method);
             return await continuation(request, context);
         }
 

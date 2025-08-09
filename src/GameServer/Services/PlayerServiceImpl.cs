@@ -11,26 +11,31 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
 {
     private readonly GameDbContext _dbContext;
     private readonly ILogger<PlayerServiceImpl> _logger;
-    private readonly IWorldService _worldService;
+    private readonly IWorldManager _worldService;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<WorldUpdateResponse>> _worldStreams = new();
 
-    public PlayerServiceImpl(GameDbContext dbContext, ILogger<PlayerServiceImpl> logger, IWorldService worldService)
+    public PlayerServiceImpl(GameDbContext dbContext, ILogger<PlayerServiceImpl> logger, IWorldManager worldService)
     {
         _dbContext = dbContext;
         _logger = logger;
         _worldService = worldService;
     }
 
+    private Guid GetAccountId(ServerCallContext context)
+    {
+        var header = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id")?.Value;
+        if (header == null || !Guid.TryParse(header, out var accountId))
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Missing or invalid account id header"));
+        }
+        return accountId;
+    }
+
     public override async Task<CreateCharacterResponse> CreateCharacter(CreateCharacterRequest request, ServerCallContext context)
     {
         try
         {
-            // Get account ID from context (added by JWT interceptor)
-            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-            {
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-            }
+            var accountId = GetAccountId(context);
 
             // Validate input
             if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Vocation))
@@ -134,12 +139,7 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
     {
         try
         {
-            // Get account ID from context (added by JWT interceptor)
-            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-            {
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-            }
+            var accountId = GetAccountId(context);
 
             // Get all characters for this account
             var players = await _dbContext.Players
@@ -188,12 +188,7 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
     {
         try
         {
-            // Get account ID from context (added by JWT interceptor)
-            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-            {
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-            }
+            var accountId = GetAccountId(context);
 
             _logger.LogInformation($"🌍 Player joining world for account: {accountId}");
 
@@ -300,12 +295,7 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
     {
         try
         {
-            // Get account ID from context (added by JWT interceptor)
-            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-            {
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-            }
+            var accountId = GetAccountId(context);
 
             _logger.LogInformation($"🚪 Player leaving world for account: {accountId}");
 
@@ -353,12 +343,7 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
     {
         try
         {
-            // Get account ID from context (added by JWT interceptor)
-            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-            {
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-            }
+            var accountId = GetAccountId(context);
 
             _logger.LogInformation($"🔥 Movement request for account {accountId}: ({request.TargetX}, {request.TargetY}) - {request.MovementType}");
 
@@ -443,11 +428,7 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
     {
         try
         {
-            var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-            if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-            {
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-            }
+            var accountId = GetAccountId(context);
 
             var player = await _dbContext.Players
                 .FirstOrDefaultAsync(p => p.AccountId == accountId && p.IsOnline);
@@ -502,11 +483,7 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
 
     public override async Task<GetWorldStateResponse> GetWorldState(GetWorldStateRequest request, ServerCallContext context)
     {
-        var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-        if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-        {
-            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-        }
+        var accountId = GetAccountId(context);
 
         _logger.LogInformation("🌍 Getting world state for account {AccountId}", accountId);
 
@@ -524,51 +501,6 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
 
         _logger.LogInformation("🎯 Returning world state with {PlayerCount} players", response.Players.Count);
         return response;
-    }
-
-    public override async Task GetWorldUpdates(WorldUpdateRequest request, IServerStreamWriter<WorldUpdateResponse> responseStream, ServerCallContext context)
-    {
-        var accountIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "x-account-id");
-        if (accountIdHeader == null || !Guid.TryParse(accountIdHeader.Value, out var accountId))
-        {
-            throw new RpcException(new Status(StatusCode.Unauthenticated, "Invalid account context"));
-        }
-
-        var streamId = Guid.NewGuid().ToString();
-        _worldStreams.TryAdd(streamId, responseStream);
-
-        try
-        {
-            _logger.LogInformation("Started world updates stream for account {AccountId}", accountId);
-
-            // Send updates every 100ms
-            while (!context.CancellationToken.IsCancellationRequested)
-            {
-                var onlinePlayers = await _worldService.GetOnlinePlayersAsync();
-                
-                var response = new WorldUpdateResponse
-                {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                };
-
-                foreach (var player in onlinePlayers)
-                {
-                    response.Players.Add(ConvertToPlayerInfo(player));
-                }
-
-                await responseStream.WriteAsync(response);
-                await Task.Delay(100, context.CancellationToken); // 10 FPS
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in world updates stream");
-        }
-        finally
-        {
-            _worldStreams.TryRemove(streamId, out _);
-            _logger.LogInformation("Ended world updates stream for account {AccountId}", accountId);
-        }
     }
 
     private static PlayerInfo ConvertToPlayerInfo(Player player)

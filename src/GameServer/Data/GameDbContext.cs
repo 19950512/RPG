@@ -11,6 +11,7 @@ public class GameDbContext : DbContext
     public DbSet<Player> Players { get; set; }
     public DbSet<AuthToken> AuthTokens { get; set; }
     public DbSet<ActiveToken> ActiveTokens { get; set; }
+    public DbSet<WorldEntity> WorldEntities { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,6 +77,17 @@ public class GameDbContext : DbContext
                   .WithMany(a => a.ActiveTokens)
                   .HasForeignKey(e => e.AccountId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // WorldEntity configuration
+        modelBuilder.Entity<WorldEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.EntityType);
+            entity.Property(e => e.Name).HasMaxLength(100);
+            entity.Property(e => e.EntityType).HasMaxLength(20);
+            entity.Property(e => e.MovementState).HasMaxLength(20);
+            entity.Property(e => e.Properties).HasDefaultValue("{}");
         });
     }
 }

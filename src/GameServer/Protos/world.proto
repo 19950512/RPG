@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+option csharp_namespace = "GameServer.Protos";
+
+package world;
+
+// World entity messages
+message WorldEntity {
+  string id = 1;
+  string name = 2;
+  string entity_type = 3; // "npc", "monster", "item"
+  
+  // Position
+  float position_x = 4;
+  float position_y = 5;
+  
+  // Health and Mana (for monsters)
+  int32 current_hp = 6;
+  int32 max_hp = 7;
+  int32 current_mp = 8;
+  int32 max_mp = 9;
+  
+  // Combat stats
+  int32 attack = 10;
+  int32 defense = 11;
+  float speed = 12;
+  
+  // State
+  string movement_state = 13;
+  int32 facing_direction = 14;
+  bool is_alive = 15;
+  
+  // Additional data (for items, special NPCs, etc.)
+  map<string, string> properties = 16;
+}
+
+// World state request/response
+message GetWorldEntitiesRequest {
+  // Empty - uses JWT for account identification
+}
+
+message GetWorldEntitiesResponse {
+  repeated WorldEntity npcs = 1;
+  repeated WorldEntity monsters = 2;
+  repeated WorldEntity items = 3;
+  int64 timestamp = 4;
+}
+
+// Entity interaction
+message InteractWithEntityRequest {
+  string entity_id = 1;
+  string interaction_type = 2; // "talk", "attack", "pickup", "use"
+  map<string, string> parameters = 3;
+}
+
+message InteractWithEntityResponse {
+  bool success = 1;
+  string message = 2;
+  repeated WorldEntity affected_entities = 3; // Entidades que foram modificadas
+  map<string, string> rewards = 4; // XP, items, etc.
+}
+
+// World updates for real-time synchronization
+message WorldUpdateRequest {
+  // Empty - stream request
+}
+
+message WorldUpdateResponse {
+  repeated WorldEntity updated_entities = 1; // Apenas entidades que mudaram
+  repeated string removed_entity_ids = 2; // IDs de entidades removidas
+  int64 timestamp = 3;
+}
+
+// World service
+service WorldService {
+  // Get all world entities (NPCs, monsters, items)
+  rpc GetWorldEntities(GetWorldEntitiesRequest) returns (GetWorldEntitiesResponse);
+  
+  // Interact with world entities
+  rpc InteractWithEntity(InteractWithEntityRequest) returns (InteractWithEntityResponse);
+  
+  // Real-time world updates (streaming)
+  rpc GetWorldUpdates(WorldUpdateRequest) returns (stream WorldUpdateResponse);
+}
