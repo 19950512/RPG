@@ -1,8 +1,109 @@
-# Game Server - Realtime gRPC Backend
+# RPG Game Server - Realtime gRPC Backend
 
-Um servidor backend de jogo realtime robusto construído com C# (.NET 8), gRPC, PostgreSQL e Docker, projetado para suportar milhões de conexões simultâneas.
+Um servidor backend de jogo realtime robusto construído com C# (.NET 8), gRPC, PostgreSQL e Docker, com cliente Python usando Pygame.
 
-## 🚀 Características Principais
+## 🎮 Início Rápido (Para Novos Desenvolvedores)
+
+### Pré-requisitos
+- Git
+- Docker e Docker Compose
+- Python 3.8+
+
+### Configuração Automática
+
+1. **Clone o repositório:**
+   ```bash
+   git clone https://github.com/19950512/RPG.git
+   cd RPG
+   ```
+
+2. **Execute o script de configuração:**
+   ```bash
+   ./setup-dev-environment.sh
+   ```
+   
+   Este script irá:
+   - ✅ Verificar todas as dependências
+   - ✅ Criar ambiente virtual Python
+   - ✅ Instalar todas as dependências
+   - ✅ Configurar arquivos de ambiente
+   - ✅ Gerar certificados SSL
+   - ✅ Criar scripts úteis de desenvolvimento
+
+3. **Ative o ambiente virtual:**
+   ```bash
+   source ./activate-env.sh
+   ```
+
+4. **Inicie o servidor:**
+   ```bash
+   docker-compose up -d
+   ```
+
+5. **Execute o cliente:**
+   ```bash
+   ./run-client.sh
+   ```
+
+## 🛠️ Scripts de Desenvolvimento
+
+Após executar o setup, você terá acesso aos seguintes scripts:
+
+- `./activate-env.sh` - Ativa o ambiente virtual Python
+- `./run-client.sh` - Executa o cliente do jogo
+- `./stop-all.sh` - Para todos os serviços Docker
+- `./test-environment.sh` - Testa se o ambiente está funcionando
+
+## 💻 Instalação por Sistema Operacional
+
+Para instruções específicas do seu sistema operacional, consulte: **[INSTALL.md](INSTALL.md)**
+
+- 🐧 Linux (Ubuntu/Debian)
+- 🍎 macOS
+- 🪟 Windows (WSL2 ou nativo)
+
+## 🐳 Comandos Docker Úteis
+
+```bash
+# Iniciar todos os serviços
+docker-compose up -d
+
+# Ver logs do servidor
+docker-compose logs gameserver
+
+# Ver status dos serviços
+docker-compose ps
+
+# Parar todos os serviços
+docker-compose down
+
+# Reconstruir imagens (após mudanças no código)
+docker-compose build --no-cache gameserver
+
+# Acessar o banco de dados
+docker-compose exec postgres psql -U gameuser -d gameserver
+```
+
+## � Documentação Adicional
+
+- **[INSTALL.md](INSTALL.md)** - Instruções específicas por sistema operacional
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Guia completo de desenvolvimento
+- **[docs/](docs/)** - Documentação técnica detalhada
+
+## ✨ O que o script setup-dev-environment.sh faz?
+
+O script automatiza toda a configuração inicial:
+
+1. ✅ **Verifica dependências** - Python3, Docker, Git
+2. ✅ **Cria ambiente virtual** - Isolamento de dependências Python
+3. ✅ **Instala dependências** - Pygame, gRPC, Protobuf
+4. ✅ **Configura arquivos** - dev.env, certificados SSL
+5. ✅ **Cria scripts úteis** - run-client.sh, stop-all.sh, etc.
+6. ✅ **Testa conectividade** - Verifica se tudo está funcionando
+
+Depois do setup, você tem um ambiente completo pronto para desenvolvimento!
+
+## �🚀 Características Principais
 
 - **Backend C# com ASP.NET Core gRPC** - Comunicação exclusivamente via gRPC
 - **Segurança Robusta** - TLS obrigatório + Autenticação JWT

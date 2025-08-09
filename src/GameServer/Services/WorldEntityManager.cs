@@ -39,17 +39,22 @@ public class WorldEntityManager : IWorldEntityManager, IDisposable
         _scopeFactory = scopeFactory;
         _logger = logger;
         
+        _logger.LogInformation("🌍 WorldEntityManager inicializando...");
+        
         // Initialize timers
         _respawnTimer = new Timer(state => Task.Run(() => ProcessRespawns(state)), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
         _broadcastTimer = new Timer(state => Task.Run(() => ProcessBroadcasts(state)), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         
         // Load entities from database (fire and forget, mas poderemos forçar depois)
+        _logger.LogInformation("🌍 Iniciando carregamento de entidades do banco...");
         _ = Task.Run(async () => await LoadEntitiesFromDatabase(null));
     }
 
     public Task<IEnumerable<WorldEntity>> GetAllEntitiesAsync()
     {
         var list = _entities.Values.Where(e => e.EntityType != "monster" || e.IsAlive);
+        _logger.LogInformation("🌍 GetAllEntitiesAsync chamado - retornando {Count} entidades (cache total: {CacheTotal})", 
+            list.Count(), _entities.Count);
         return Task.FromResult(list);
     }
 
@@ -312,27 +317,37 @@ public class WorldEntityManager : IWorldEntityManager, IDisposable
     {
         if (!await _loadSemaphore.WaitAsync(TimeSpan.FromSeconds(5)))
         {
-            _logger.LogWarning("Não foi possível obter lock para carregar entidades (já em andamento).");
+            _logger.LogWarning("🌍 Não foi possível obter lock para carregar entidades (já em andamento).");
             return;
         }
         try
         {
+            _logger.LogInformation("🌍 Conectando ao banco para carregar entidades...");
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+            
+            _logger.LogInformation("🌍 Consultando WorldEntities no banco...");
             var entities = await context.WorldEntities.ToListAsync();
+            
+            _logger.LogInformation("🌍 Encontradas {Count} entidades no banco", entities.Count);
+            
             foreach (var entity in entities)
             {
                 _entities[entity.Id] = entity;
+                _logger.LogDebug("🌍 Carregada entidade: {Name} ({Type}) em ({X},{Y})", 
+                    entity.Name, entity.EntityType, entity.PositionX, entity.PositionY);
             }
-            _logger.LogInformation("Loaded {Count} entities from database (cache total={CacheCount})", _entities.Count, _entities.Count);
+            
+            _logger.LogInformation("🌍 ✅ Loaded {Count} entities from database (cache total={CacheCount})", entities.Count, _entities.Count);
+            
             if (_entities.IsEmpty)
             {
-                _logger.LogInformation("Banco retornou 0 entidades.");
+                _logger.LogWarning("🌍 ⚠️ Cache de entidades está vazio após carregamento!");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading entities from database");
+            _logger.LogError(ex, "🌍 ❌ Error loading entities from database");
         }
         finally
         {

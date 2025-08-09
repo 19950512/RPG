@@ -1,4 +1,15 @@
-pygame>=2.0.0
-grpcio>=1.50.0
-grpcio-tools>=1.50.0
-protobuf>=4.0.0
+# RPG Game Client Dependencies
+# Instale com: pip install -r requirements.txt
+
+# Interface gráfica do jogo
+pygame>=2.5.0
+
+# Comunicação gRPC com o servidor
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+
+# Serialização de dados
+protobuf>=4.25.0
+
+# Utilitários adicionais
+requests>=2.31.0

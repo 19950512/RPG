@@ -104,7 +104,6 @@ message PlayerInfo {
   string movement_state = 15;
   int32 facing_direction = 16;
   bool is_online = 17;
-  repeated string inventory = 18;
 }
 
 // Player service (requires JWT authentication)
