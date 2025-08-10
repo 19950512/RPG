@@ -47,4 +47,7 @@ public class Player
 
     // Navigation property
     public virtual Account Account { get; set; } = null!;
+
+    // Inventory
+    public List<string> Inventory { get; set; } = new List<string>(); // IDs dos itens no inventário como string (GUID)
 }

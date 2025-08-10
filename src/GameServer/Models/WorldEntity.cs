@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using GameServer.Items;
 
 namespace GameServer.Models;
 
@@ -48,4 +49,8 @@ public class WorldEntity
     public int RespawnDelaySeconds { get; set; } = 300; // 5 minutes default
     public float SpawnX { get; set; } // Original spawn position
     public float SpawnY { get; set; }
+
+    // FK opcional para Item (se esta entidade representa um item físico do mundo)
+    public Guid? ItemId { get; set; }
+    public Item? Item { get; set; } // Associação com a classe abstrata Item
 }

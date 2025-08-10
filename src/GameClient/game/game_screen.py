@@ -394,19 +394,30 @@ class GameScreen:
             self._process_chat_command(chat_message)
 
     def _pickup_item(self, item_entity):
-        """Solicita ao servidor a coleta do item e atualiza o inventário local"""
+        """Solicita ao servidor a coleta do item e atualiza o inventário local (usa PlayerService)"""
         try:
-            if hasattr(self.game, 'auth_token') and self.game.auth_token:
-                response = world_client.interact_with_entity(
-                    entity_id=item_entity.id,
-                    interaction_type="pickup"
+            if hasattr(self.game, 'auth_token') and self.game.auth_token and hasattr(self.game, 'selected_character') and self.game.selected_character:
+                player_id = self.game.selected_character.get('id')
+                if not player_id:
+                    self.ui.add_chat_message("⚠️ PlayerId indisponível para coleta")
+                    return
+                # Chama PlayerService diretamente para pegar item
+                response = grpc_client.pick_up_item(
+                    self.game.auth_token,
+                    player_id=player_id,
+                    item_id=item_entity.id
                 )
                 if response.success:
                     self.ui.add_chat_message(f"👜 {response.message}")
                     # Remove item localmente
                     self.entity_manager.remove_entity(item_entity.id)
+                    # Atualiza inventário local se existir
+                    if hasattr(self.local_player, 'inventory'):
+                        self.local_player.inventory.append(item_entity.id)
                 else:
                     self.ui.add_chat_message(f"❌ {response.message}")
+            else:
+                self.ui.add_chat_message("❌ Não autenticado ou player não selecionado")
         except Exception as e:
             self.ui.add_chat_message(f"⚠️ Erro ao coletar item: {e}")
     

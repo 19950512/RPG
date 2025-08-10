@@ -9,8 +9,14 @@ import grpc
 import sys
 import os
 
-# Adicionar o diretório de protos ao path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'GameServer', 'Protos'))
+# Ajustar path para usar arquivos gerados do GameClient
+BASE_DIR = os.path.dirname(__file__)
+GENERATED_DIR = os.path.join(BASE_DIR, '..', 'src', 'GameClient', 'Generated')
+if os.path.isdir(GENERATED_DIR):
+    sys.path.insert(0, os.path.abspath(GENERATED_DIR))
+else:
+    # fallback antigo (pode não existir arquivos compilados)
+    sys.path.insert(0, os.path.join(BASE_DIR, '..', 'src', 'GameServer', 'Protos'))
 
 try:
     import auth_pb2
@@ -19,7 +25,7 @@ try:
     import player_pb2_grpc
 except ImportError as e:
     print(f"Erro ao importar protos: {e}")
-    print("Certifique-se de que os arquivos .proto foram compilados para Python")
+    print("Certifique-se de que os arquivos .proto foram compilados para Python (ver diretório src/GameClient/Generated)")
     sys.exit(1)
 
 class GameClient:

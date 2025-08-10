@@ -140,13 +140,13 @@ public class WorldServiceImpl : WorldService.WorldServiceBase
         IServerStreamWriter<WorldUpdateResponse> responseStream,
         ServerCallContext context)
     {
+        Guid? accountId = null;
         try
         {
-            var accountId = GetAccountId(context);
+            accountId = GetAccountId(context);
             _logger.LogInformation("Starting world updates stream for player account {AccountId}", accountId);
 
             var updateQueue = _worldEntityManager.SubscribeToUpdates();
-
             try
             {
                 while (!context.CancellationToken.IsCancellationRequested)
@@ -171,6 +171,7 @@ public class WorldServiceImpl : WorldService.WorldServiceBase
                     }
                     catch (OperationCanceledException) when (!context.CancellationToken.IsCancellationRequested)
                     {
+                        // Heartbeat para manter a conexão viva
                         await responseStream.WriteAsync(new WorldUpdateResponse { Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
                     }
                 }
@@ -178,7 +179,13 @@ public class WorldServiceImpl : WorldService.WorldServiceBase
             finally
             {
                 _worldEntityManager.UnsubscribeFromUpdates(updateQueue);
+                _logger.LogInformation("World updates stream ended for account {AccountId}", accountId);
             }
+        }
+        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
+        {
+            // Cancelamento normal pelo cliente
+            _logger.LogInformation("World updates stream cancelled by client (account {AccountId})", accountId);
         }
         catch (RpcException)
         {

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using GameServer.Data;
 using GameServer.Models;
 using System.Text.Json;
+using GameServer.Items;
 
 namespace GameServer.Services;
 
@@ -270,22 +271,25 @@ public interface IWorldEntityManager
         }
         
         // Create some items
-        entities.Add(new WorldEntity
-        {
-            Name = "Health Potion",
-            EntityType = "item",
-            PositionX = 550,
-            PositionY = 450,
-            SpawnX = 550,
-            SpawnY = 450,
-            Properties = JsonSerializer.Serialize(new Dictionary<string, string>
-            {
-                ["type"] = "consumable",
-                ["effect"] = "heal",
-                ["value"] = "25"
-            })
-        });
-        
+        // Antes: criava somente WorldEntity desconectado da tabela Items.
+        // Agora: criamos instâncias concretas de Item, adicionamos em Items e linkamos via ItemId.
+        var healthPotionItem = new PotionHealth(550, 450);
+        var manaPotionItem = new PotionMana(570, 450);
+        var swordItem = new Sword(650, 480);
+
+        context.Items.AddRange(healthPotionItem, manaPotionItem, swordItem);
+
+        var healthPotionEntity = healthPotionItem.ToWorldEntity();
+        healthPotionEntity.ItemId = healthPotionItem.Id;
+        var manaPotionEntity = manaPotionItem.ToWorldEntity();
+        manaPotionEntity.ItemId = manaPotionItem.Id;
+        var swordEntity = swordItem.ToWorldEntity();
+        swordEntity.ItemId = swordItem.Id;
+
+        entities.Add(healthPotionEntity);
+        entities.Add(manaPotionEntity);
+        entities.Add(swordEntity);
+
         // Save to database
         context.WorldEntities.AddRange(entities);
         await context.SaveChangesAsync();

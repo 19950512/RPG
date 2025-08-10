@@ -35,6 +35,7 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<IWorldManager, WorldManager>();
 builder.Services.AddSingleton<IWorldEntityManager, WorldEntityManager>();
+builder.Services.AddScoped<ItemService>(); // registro ItemService
 builder.Services.AddScoped<JwtAuthInterceptor>();
 builder.Services.AddHostedService<TokenCleanupHostedService>();
 
@@ -67,6 +68,10 @@ app.MapGrpcService<GameServer.Services.WorldServiceImpl>();
 
 // Health check endpoint
 app.MapGet("/health", () => "Healthy");
+
+// Seed entidades default se banco estiver vazio
+var entityManager = app.Services.GetRequiredService<IWorldEntityManager>();
+await entityManager.InitializeDefaultEntitiesAsync();
 
 Log.Information("GameServer starting...");
 

@@ -34,6 +34,8 @@ class GrpcClient:
         self._refresh_expires_at = 0
 
         self._load_tokens()
+        # Mapa opcional WorldEntityId -> ItemId (preenchido externamente)
+        self._world_entity_item_map = {}
 
     @property
     def jwt_token(self):
@@ -80,6 +82,25 @@ class GrpcClient:
                 TOKEN_STORE_PATH.unlink()
         except Exception:
             pass
+
+    # --- Novos métodos de suporte a resolução WorldEntityId -> ItemId ---
+    def register_world_entity_item(self, world_entity_id: str, item_id: str):
+        """Registra mapeamento de WorldEntityId para ItemId no cache local do cliente."""
+        if world_entity_id and item_id:
+            self._world_entity_item_map[world_entity_id] = item_id
+
+    def bulk_register_world_entities(self, pairs):
+        """Registra múltiplos pares (world_entity_id, item_id). pairs: Iterable[Tuple[str,str]]"""
+        for we_id, it_id in pairs:
+            if we_id and it_id:
+                self._world_entity_item_map[we_id] = it_id
+
+    def resolve_item_id(self, possible_id: str) -> str:
+        """Se o ID for um WorldEntityId mapeado, retorna o ItemId correspondente; caso contrário retorna o próprio ID."""
+        return self._world_entity_item_map.get(possible_id, possible_id)
+
+    def has_world_entity(self, world_entity_id: str) -> bool:
+        return world_entity_id in self._world_entity_item_map
 
     def _is_jwt_valid(self):
         import time
@@ -494,6 +515,92 @@ class GrpcClient:
             return True
         except Exception:
             return False
+    
+    def resolve_world_entity_item(self, world_entity_id: str):
+        """Chama RPC ResolveWorldEntityItem para obter ItemId a partir de WorldEntityId e registra no cache local."""
+        self._ensure_connection()
+        if self.player_stub is None:
+            raise Exception("Player service not available")
+        metadata = self.authenticated_metadata()
+        req = player_pb2.ResolveWorldEntityItemRequest(world_entity_id=world_entity_id)
+        try:
+            resp = self.player_stub.ResolveWorldEntityItem(req, metadata=metadata)
+            print(f"[ResolveWorldEntityItem] success={resp.success} message='{resp.message}' item_id={getattr(resp,'item_id',None)}")
+            if resp.success and resp.item_id:
+                self.register_world_entity_item(world_entity_id, resp.item_id)
+            return resp
+        except grpc.RpcError as e:
+            print(f"[ResolveWorldEntityItem] gRPC ERROR code={e.code()} details={e.details()}")
+            raise
 
-# Global instance
+    def pick_up_item(self, jwt_token, player_id, item_id=None, world_entity_id=None):
+        """Efetua coleta de item via PlayerService.PickUpItem.
+        Aceita:
+          - item_id direto
+          - world_entity_id (servidor resolve)
+          - world_entity_id já mapeado (cache local converte para item_id)
+        """
+        self._ensure_connection()
+        if self.player_stub is None:
+            raise Exception("Player service not available")
+        metadata = self.authenticated_metadata()
+
+        resolved_item_id = None
+        sending_world_entity_id = None
+
+        if item_id:
+            # Pode ser um item direto ou um world entity id mapeado
+            mapped = self.resolve_item_id(item_id)
+            if mapped != item_id:
+                print(f"[PickUpItem] Translating WorldEntityId {item_id} -> ItemId {mapped}")
+            resolved_item_id = mapped
+        elif world_entity_id:
+            # Tentar cache
+            if self.has_world_entity(world_entity_id):
+                resolved_item_id = self.resolve_item_id(world_entity_id)
+                print(f"[PickUpItem] Cache map {world_entity_id} -> {resolved_item_id}")
+            else:
+                # Enviar somente world_entity_id e deixar servidor resolver
+                sending_world_entity_id = world_entity_id
+        else:
+            raise ValueError("Forneça item_id ou world_entity_id")
+
+        try:
+            target = getattr(self.channel, 'target', None)
+            if callable(target):
+                target = target()
+            print(f"[PickUpItem] ChannelTarget={target}")
+        except Exception:
+            pass
+
+        print(f"[PickUpItem] player_id={player_id} item_id={resolved_item_id} world_entity_id={sending_world_entity_id}")
+        print(f"[PickUpItem] Metadata={metadata}")
+
+        request_kwargs = { 'player_id': player_id }
+        if resolved_item_id:
+            request_kwargs['item_id'] = resolved_item_id
+        if sending_world_entity_id:
+            request_kwargs['world_entity_id'] = sending_world_entity_id
+
+        request = player_pb2.PickUpItemRequest(**request_kwargs)
+        try:
+            response = self.player_stub.PickUpItem(request, metadata=metadata)
+            print(f"[PickUpItem] Response success={response.success} message='{response.message}'")
+            return response
+        except grpc.RpcError as e:
+            print(f"[PickUpItem] gRPC ERROR code={e.code()} details={e.details()}")
+            try:
+                dbg = e.debug_error_string()
+                print(f"[PickUpItem] debug_error_string={dbg}")
+            except Exception:
+                pass
+            raise
+
+    def pick_up_item_by_world_entity(self, jwt_token, player_id, world_entity_id):
+        """Atalho explícito quando se tem apenas o WorldEntityId. Requer mapeamento prévio registrado."""
+        if not self.has_world_entity(world_entity_id):
+            raise ValueError(f"WorldEntityId {world_entity_id} não está mapeado para um ItemId. Registre antes com register_world_entity_item().")
+        return self.pick_up_item(jwt_token, player_id, world_entity_id)
+
+# Global instance (compatibilidade com telas que importam grpc_client)
 grpc_client = GrpcClient()

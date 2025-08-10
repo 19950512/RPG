@@ -44,7 +44,10 @@ CREATE TABLE IF NOT EXISTS "Players" (
     "MovementState" VARCHAR(20) NOT NULL DEFAULT 'idle',
     "FacingDirection" INTEGER NOT NULL DEFAULT 0,
     "IsOnline" BOOLEAN NOT NULL DEFAULT false,
-    "LastUpdate" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "LastUpdate" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Inventory
+    "Inventory" TEXT[] DEFAULT '{}'
 );
 
 -- AuthTokens table
@@ -112,6 +115,50 @@ CREATE TABLE IF NOT EXISTS "WorldEntities" (
     "Properties" TEXT NOT NULL DEFAULT '{}'
 );
 
+-- Items table (TPH discriminator + metadata)
+DROP TABLE IF EXISTS "Items" CASCADE;
+CREATE TABLE "Items" (
+    "Id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Name" VARCHAR(100) NOT NULL,
+    "item_type" VARCHAR(50) NOT NULL,              -- Discriminador EF (sword, health_potion, mana_potion)
+    "Description" VARCHAR(500) NULL,
+    "Sprite" VARCHAR(100) NULL,
+    "Quantity" INT NOT NULL DEFAULT 1,
+    "OwnerId" UUID NULL REFERENCES "Players"("Id") ON DELETE SET NULL,
+    "PositionX" REAL NULL,
+    "PositionY" REAL NULL,
+    "CreatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "LastUpdate" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Relacionamento opcional WorldEntities -> Items (ItemId)
+ALTER TABLE "WorldEntities"
+    ADD COLUMN IF NOT EXISTS "ItemId" UUID NULL;
+
+-- Garantir recriação segura da FK (PostgreSQL não suporta IF NOT EXISTS em ADD CONSTRAINT)
+ALTER TABLE "WorldEntities" DROP CONSTRAINT IF EXISTS "FK_WorldEntities_Items_ItemId";
+ALTER TABLE "WorldEntities"
+    ADD CONSTRAINT "FK_WorldEntities_Items_ItemId" FOREIGN KEY ("ItemId") REFERENCES "Items"("Id") ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS "IX_WorldEntities_ItemId" ON "WorldEntities" ("ItemId");
+
+-- ItemEvents table to track events related to items
+DROP TABLE IF EXISTS "ItemEvents" CASCADE;
+CREATE TABLE "ItemEvents" (
+    "Id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "ItemId" UUID NOT NULL REFERENCES "Items"("Id") ON DELETE CASCADE,
+    "EventType" VARCHAR(50) NOT NULL, -- Ex: PickUp, Drop, Use
+    "PlayerId" UUID NULL REFERENCES "Players"("Id") ON DELETE SET NULL,
+    "EventTime" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "Details" TEXT NULL -- JSON adicional
+);
+
+-- Indexes específicos para Items
+CREATE INDEX IF NOT EXISTS "IX_Items_ItemType" ON "Items" ("item_type");
+CREATE INDEX IF NOT EXISTS "IX_Items_OwnerId" ON "Items" ("OwnerId");
+CREATE INDEX IF NOT EXISTS "IX_ItemEvents_ItemId" ON "ItemEvents" ("ItemId");
+CREATE INDEX IF NOT EXISTS "IX_ItemEvents_PlayerId" ON "ItemEvents" ("PlayerId");
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS "IX_Accounts_Email" ON "Accounts" ("Email");
 CREATE INDEX IF NOT EXISTS "IX_Players_AccountId" ON "Players" ("AccountId");
@@ -162,6 +209,35 @@ INSERT INTO "WorldEntities" ("Name", "EntityType", "PositionX", "PositionY", "Sp
 ('Sword', 'item', 650, 480, 650, 480, 1, 1, 0, 0, 0, 0, 0, 0, '{"type": "weapon", "attack_bonus": "5", "description": "A sturdy iron sword"}')
 
 ON CONFLICT ("Id") DO NOTHING;
+
+-- Seeds de itens iniciais (expostos no mundo - posições definidas)
+INSERT INTO "Items" ("Name", "item_type", "Description", "Sprite", "Quantity", "PositionX", "PositionY") VALUES
+('Health Potion', 'health_potion', 'Restores a small amount of health.', 'health_potion_sprite', 1, 550, 450),
+('Mana Potion', 'mana_potion', 'Restores a small amount of mana.', 'mana_potion_sprite', 1, 570, 450),
+('Sword', 'sword', 'A sturdy iron sword', 'sword_sprite', 1, 650, 480)
+ON CONFLICT DO NOTHING;
+
+-- Vincular WorldEntities de itens às linhas de Items (caso ainda não vinculadas)
+UPDATE "WorldEntities" w
+SET "ItemId" = i."Id"
+FROM "Items" i
+WHERE w."EntityType" = 'item'
+  AND w."ItemId" IS NULL
+  AND w."Name" = i."Name"
+  AND w."PositionX" = i."PositionX"
+  AND w."PositionY" = i."PositionY";
+
+-- Fallback: criar WorldEntities para quaisquer Items que não possuam WorldEntity associada
+INSERT INTO "WorldEntities" (
+    "Id","Name","EntityType","PositionX","PositionY","SpawnX","SpawnY",
+    "CurrentHp","MaxHp","CurrentMp","MaxMp","Attack","Defense","Speed",
+    "MovementState","FacingDirection","IsAlive","RespawnDelaySeconds","Properties","ItemId"
+)
+SELECT gen_random_uuid(), i."Name", 'item', COALESCE(i."PositionX",0), COALESCE(i."PositionY",0), COALESCE(i."PositionX",0), COALESCE(i."PositionY",0),
+       1,1,0,0,0,0,0,'idle',0,true,0,'{}', i."Id"
+FROM "Items" i
+LEFT JOIN "WorldEntities" w ON w."ItemId" = i."Id"
+WHERE w."ItemId" IS NULL;
 
 -- Log successful initialization
 DO $$

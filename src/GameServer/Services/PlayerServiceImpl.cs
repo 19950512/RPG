@@ -13,12 +13,14 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
     private readonly ILogger<PlayerServiceImpl> _logger;
     private readonly IWorldManager _worldService;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<WorldUpdateResponse>> _worldStreams = new();
+    private readonly ItemService _itemService; // novo
 
-    public PlayerServiceImpl(GameDbContext dbContext, ILogger<PlayerServiceImpl> logger, IWorldManager worldService)
+    public PlayerServiceImpl(GameDbContext dbContext, ILogger<PlayerServiceImpl> logger, IWorldManager worldService, ItemService itemService)
     {
         _dbContext = dbContext;
         _logger = logger;
         _worldService = worldService;
+        _itemService = itemService;
     }
 
     private Guid GetAccountId(ServerCallContext context)
@@ -186,59 +188,67 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
 
     public override async Task<JoinWorldResponse> JoinWorld(JoinWorldRequest request, ServerCallContext context)
     {
+        _logger.LogInformation("[JoinWorld] START requestPlayerId={RequestPlayerId}", string.IsNullOrWhiteSpace(request.PlayerId) ? "<none>" : request.PlayerId);
+        Guid accountId;
         try
         {
-            var accountId = GetAccountId(context);
+            accountId = GetAccountId(context);
+        }
+        catch (RpcException rex)
+        {
+            _logger.LogWarning(rex, "[JoinWorld] Auth/Account header error");
+            throw; // Propaga para o cliente como UNAUTHENTICATED
+        }
 
-            _logger.LogInformation($"🌍 Player joining world for account: {accountId}");
+        try
+        {
+            _logger.LogDebug("[JoinWorld] Account resolved accountId={AccountId}", accountId);
+            Player? player = null;
 
-            // Se player_id foi fornecido, usar esse específico, senão pegar o primeiro da conta
-            Player? player;
-            if (!string.IsNullOrEmpty(request.PlayerId) && Guid.TryParse(request.PlayerId, out var playerId))
+            if (!string.IsNullOrEmpty(request.PlayerId) && Guid.TryParse(request.PlayerId, out var requestedPlayerGuid))
             {
-                player = await _dbContext.Players
-                    .FirstOrDefaultAsync(p => p.Id == playerId && p.AccountId == accountId);
-                
+                _logger.LogDebug("[JoinWorld] Looking for specific playerId={PlayerId}", requestedPlayerGuid);
+                player = await _dbContext.Players.FirstOrDefaultAsync(p => p.Id == requestedPlayerGuid && p.AccountId == accountId);
                 if (player == null)
                 {
-                    return new JoinWorldResponse
-                    {
-                        Success = false,
-                        Message = "Player not found or doesn't belong to your account"
-                    };
+                    _logger.LogWarning("[JoinWorld] Player {PlayerId} not found or not owned by account {AccountId}", requestedPlayerGuid, accountId);
+                    return new JoinWorldResponse { Success = false, Message = "Player not found or doesn't belong to your account" };
                 }
             }
             else
             {
-                // Pegar o primeiro personagem da conta
-                player = await _dbContext.Players
-                    .Where(p => p.AccountId == accountId)
-                    .FirstOrDefaultAsync();
-                
+                _logger.LogDebug("[JoinWorld] No specific playerId provided. Fetching first character for account {AccountId}", accountId);
+                player = await _dbContext.Players.Where(p => p.AccountId == accountId).FirstOrDefaultAsync();
                 if (player == null)
                 {
-                    return new JoinWorldResponse
-                    {
-                        Success = false,
-                        Message = "No characters found. Create a character first."
-                    };
+                    _logger.LogWarning("[JoinWorld] No characters found for account {AccountId}", accountId);
+                    return new JoinWorldResponse { Success = false, Message = "No characters found. Create a character first." };
                 }
             }
 
-            // Colocar o player online
+            _logger.LogDebug("[JoinWorld] Found player {PlayerName} ({PlayerId}) IsOnline={IsOnline} Pos=({X},{Y})", player.Name, player.Id, player.IsOnline, player.PositionX, player.PositionY);
+
+            // Atualiza estado do player
             player.IsOnline = true;
             player.LastUpdate = DateTime.UtcNow;
+            _logger.LogDebug("[JoinWorld] Marking player online and saving changes...");
             await _dbContext.SaveChangesAsync();
+            _logger.LogDebug("[JoinWorld] Player saved successfully");
 
-            // Add player to WorldService cache
-            await _worldService.JoinWorldAsync(player.Id);
+            // Registra no world manager
+            _logger.LogDebug("[JoinWorld] Registering player in WorldManager cache...");
+            var worldAdded = await _worldService.JoinWorldAsync(player.Id);
+            if (!worldAdded)
+            {
+                _logger.LogError("[JoinWorld] Failed to add player {PlayerId} to WorldManager cache", player.Id);
+                return new JoinWorldResponse { Success = false, Message = "Failed to join world (world cache)" };
+            }
+            _logger.LogInformation("[JoinWorld] Player ONLINE {PlayerName} ({PlayerId}) at ({X},{Y})", player.Name, player.Id, player.PositionX, player.PositionY);
 
-            _logger.LogInformation($"🌍 Player {player.Name} ({player.Id}) is now ONLINE at position ({player.PositionX}, {player.PositionY})");
-
-            // Buscar outros players online (opcional - para mostrar quem está no mundo)
+            // Buscar outros players
             var otherPlayers = await _dbContext.Players
                 .Where(p => p.IsOnline && p.Id != player.Id)
-                .Take(10) // Limitar para não sobrecarregar
+                .Take(10)
                 .Select(p => new PlayerInfo
                 {
                     Id = p.Id.ToString(),
@@ -249,9 +259,18 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
                     PositionY = p.PositionY,
                     CurrentHp = p.CurrentHp,
                     MaxHp = p.MaxHp,
+                    CurrentMp = p.CurrentMp,
+                    MaxMp = p.MaxMp,
+                    Attack = p.Attack,
+                    Defense = p.Defense,
+                    Speed = p.Speed,
+                    MovementState = p.MovementState,
+                    FacingDirection = p.FacingDirection,
                     IsOnline = p.IsOnline
                 })
                 .ToListAsync();
+
+            _logger.LogDebug("[JoinWorld] OtherPlayersCount={Count}", otherPlayers.Count);
 
             return new JoinWorldResponse
             {
@@ -280,14 +299,14 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
                 OtherPlayers = { otherPlayers }
             };
         }
+        catch (RpcException)
+        {
+            throw; // deixa interceptor/pipeline lidar
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error joining world");
-            return new JoinWorldResponse
-            {
-                Success = false,
-                Message = "Failed to join world"
-            };
+            _logger.LogError(ex, "[JoinWorld] Unexpected error account={AccountId} requestPlayerId={RequestPlayerId}", accountId, request.PlayerId);
+            return new JoinWorldResponse { Success = false, Message = "Failed to join world" };
         }
     }
 
@@ -501,6 +520,126 @@ public class PlayerServiceImpl : GameServer.Protos.PlayerService.PlayerServiceBa
 
         _logger.LogInformation("🎯 Returning world state with {PlayerCount} players", response.Players.Count);
         return response;
+    }
+
+    public override async Task<PickUpItemResponse> PickUpItem(PickUpItemRequest request, ServerCallContext context)
+    {
+        try
+        {
+            var accountId = GetAccountId(context);
+            if (!Guid.TryParse(request.PlayerId, out var playerId))
+            {
+                return new PickUpItemResponse { Success = false, Message = "Invalid player id" };
+            }
+
+            Guid? itemIdGuid = null;
+            if (!string.IsNullOrEmpty(request.ItemId) && Guid.TryParse(request.ItemId, out var parsedItemId))
+            {
+                itemIdGuid = parsedItemId;
+            }
+
+            // Fallback 1: se não veio item_id válido mas veio world_entity_id, tentar resolver
+            if (itemIdGuid == null && !string.IsNullOrEmpty(request.WorldEntityId) && Guid.TryParse(request.WorldEntityId, out var worldEntityGuid))
+            {
+                var resolved = await _itemService.ResolveWorldEntityItemAsync(worldEntityGuid);
+                if (resolved != null)
+                {
+                    itemIdGuid = resolved.Value;
+                    _logger.LogDebug("[PickUpItem] Resolvido via world_entity_id direto: {WorldEntityId} -> {ItemId}", worldEntityGuid, itemIdGuid);
+                }
+                else
+                {
+                    return new PickUpItemResponse { Success = false, Message = "WorldEntity sem item associado" };
+                }
+            }
+
+            // Fallback 2 (melhoria): se veio item_id mas NÃO existe item com esse Id, pode ser que o cliente tenha enviado o WorldEntityId no campo item_id.
+            if (itemIdGuid != null)
+            {
+                bool exists = await _dbContext.Items.AnyAsync(i => i.Id == itemIdGuid.Value);
+                if (!exists)
+                {
+                    // Tentar interpretar itemIdGuid como world entity id
+                    var possibleEntity = await _dbContext.WorldEntities.FirstOrDefaultAsync(w => w.Id == itemIdGuid.Value);
+                    if (possibleEntity?.ItemId != null)
+                    {
+                        _logger.LogInformation("[PickUpItem] Interpretado item_id={Original} como world_entity_id; resolvido ItemId={Resolved}", itemIdGuid, possibleEntity.ItemId);
+                        itemIdGuid = possibleEntity.ItemId;
+                    }
+                    else if (!string.IsNullOrEmpty(request.WorldEntityId) && Guid.TryParse(request.WorldEntityId, out var weFromRequest))
+                    {
+                        // Última tentativa: usar explicitamente world_entity_id fornecido
+                        var entityExplicit = await _dbContext.WorldEntities.FirstOrDefaultAsync(w => w.Id == weFromRequest);
+                        if (entityExplicit?.ItemId != null)
+                        {
+                            _logger.LogInformation("[PickUpItem] Usou world_entity_id explícito após item inexistente: {WorldEntityId} -> {ItemId}", weFromRequest, entityExplicit.ItemId);
+                            itemIdGuid = entityExplicit.ItemId;
+                        }
+                        else
+                        {
+                            return new PickUpItemResponse { Success = false, Message = "Item não encontrado (fallback)" };
+                        }
+                    }
+                    else
+                    {
+                        return new PickUpItemResponse { Success = false, Message = "Invalid item id" };
+                    }
+                }
+            }
+
+            if (itemIdGuid == null)
+            {
+                return new PickUpItemResponse { Success = false, Message = "Invalid item id" };
+            }
+
+            var player = await _dbContext.Players.FirstOrDefaultAsync(p => p.Id == playerId && p.AccountId == accountId);
+            if (player == null)
+            {
+                return new PickUpItemResponse { Success = false, Message = "Player not found for this account" };
+            }
+
+            var (success, reason) = await _itemService.TryPickUpItemAsync(playerId, itemIdGuid.Value);
+            return new PickUpItemResponse
+            {
+                Success = success,
+                Message = reason
+            };
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error picking up item");
+            throw new RpcException(new Status(StatusCode.Internal, "Error picking up item"));
+        }
+    }
+
+    public override async Task<ResolveWorldEntityItemResponse> ResolveWorldEntityItem(ResolveWorldEntityItemRequest request, ServerCallContext context)
+    {
+        try
+        {
+            if (!Guid.TryParse(request.WorldEntityId, out var worldEntityGuid))
+            {
+                return new ResolveWorldEntityItemResponse { Success = false, Message = "Invalid world entity id" };
+            }
+            var itemId = await _itemService.ResolveWorldEntityItemAsync(worldEntityGuid);
+            if (itemId == null)
+            {
+                return new ResolveWorldEntityItemResponse { Success = false, Message = "No item for world entity" };
+            }
+            return new ResolveWorldEntityItemResponse { Success = true, Message = "Resolved", ItemId = itemId.Value.ToString() };
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resolving world entity item");
+            throw new RpcException(new Status(StatusCode.Internal, "Error resolving world entity item"));
+        }
     }
 
     private static PlayerInfo ConvertToPlayerInfo(Player player)

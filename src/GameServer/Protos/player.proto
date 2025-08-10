@@ -78,6 +78,27 @@ message GetWorldStateResponse {
   int64 timestamp = 2;
 }
 
+message PickUpItemRequest {
+  string player_id = 1;
+  string item_id = 2; // ItemId direto
+  string world_entity_id = 3; // Opcional: se preenchido servidor resolverá para item
+}
+
+message PickUpItemResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ResolveWorldEntityItemRequest {
+  string world_entity_id = 1;
+}
+
+message ResolveWorldEntityItemResponse {
+  bool success = 1;
+  string message = 2;
+  string item_id = 3; // ItemId resolvido, se sucesso
+}
+
 message PlayerInfo {
   string id = 1;
   string name = 2;
@@ -110,13 +131,11 @@ message PlayerInfo {
 service PlayerService {
   rpc CreateCharacter(CreateCharacterRequest) returns (CreateCharacterResponse);
   rpc ListCharacters(ListCharactersRequest) returns (ListCharactersResponse);
-  
-  // Game world operations
   rpc JoinWorld(JoinWorldRequest) returns (JoinWorldResponse);
   rpc LeaveWorld(LeaveWorldRequest) returns (LeaveWorldResponse);
   rpc MovePlayer(PlayerMoveRequest) returns (PlayerMoveResponse);
   rpc PerformAction(PlayerActionRequest) returns (PlayerActionResponse);
-  
-  // World state
+  rpc PickUpItem (PickUpItemRequest) returns (PickUpItemResponse);
   rpc GetWorldState(GetWorldStateRequest) returns (GetWorldStateResponse);
+  rpc ResolveWorldEntityItem(ResolveWorldEntityItemRequest) returns (ResolveWorldEntityItemResponse);
 }

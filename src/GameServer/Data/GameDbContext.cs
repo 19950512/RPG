@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using GameServer.Models;
+using GameServer.Items; // Adiciona o namespace correto para a classe Item
 
 namespace GameServer.Data;
 
@@ -13,6 +14,8 @@ public class GameDbContext : DbContext
     public DbSet<ActiveToken> ActiveTokens { get; set; }
     public DbSet<WorldEntity> WorldEntities { get; set; }
     public DbSet<GameServer.Models.RefreshToken> RefreshTokens { get; set; } = null!;
+    public DbSet<Item> Items { get; set; } // Adiciona suporte para a entidade Item
+    public DbSet<ItemEvent> ItemEvents { get; set; } // Adiciona suporte para eventos de itens
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -89,6 +92,37 @@ public class GameDbContext : DbContext
             entity.Property(e => e.EntityType).HasMaxLength(20);
             entity.Property(e => e.MovementState).HasMaxLength(20);
             entity.Property(e => e.Properties).HasDefaultValue("{}");
+            entity.HasOne(e => e.Item)
+                  .WithMany() // sem navegação reversa em Item
+                  .HasForeignKey(e => e.ItemId)
+                  .IsRequired(false)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // Configuração da entidade Item (TPH com discriminador)
+        var itemBuilder = modelBuilder.Entity<Item>();
+        itemBuilder.HasKey(e => e.Id);
+        itemBuilder.Property(e => e.Name).HasMaxLength(100);
+        itemBuilder.Property(e => e.Description).HasMaxLength(255);
+        itemBuilder.Property(e => e.PositionX);
+        itemBuilder.Property(e => e.PositionY);
+        itemBuilder.Property(e => e.OwnerId).IsRequired(false);
+        itemBuilder.HasDiscriminator<string>("item_type")
+                   .HasValue<Sword>("sword")
+                   .HasValue<PotionHealth>("health_potion")
+                   .HasValue<PotionMana>("mana_potion");
+
+        // Registrar concretos
+        modelBuilder.Entity<Sword>();
+        modelBuilder.Entity<PotionHealth>();
+        modelBuilder.Entity<PotionMana>();
+
+        // Configuração da entidade ItemEvent
+        modelBuilder.Entity<ItemEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EventType).HasMaxLength(50);
+            entity.Property(e => e.Timestamp).IsRequired();
         });
     }
 }
